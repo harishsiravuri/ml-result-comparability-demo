@@ -1,0 +1,34 @@
+{
+  "n_certificates": 9471,
+  "by_source": {
+    "census_pair": 3058,
+    "leaderboard_pair": 6413
+  },
+  "scope_note": "all released census pairs; leaderboard pairs limited to the top-10 entries of each multi-protocol leaderboard (bound stated, not silent)",
+  "counts_by_status": {
+    "incompatible": 1904,
+    "unknown": 1855,
+    "comparable": 5606,
+    "excluded": 106
+  },
+  "counts_by_typed_outcome": {
+    "unknown": 2094,
+    "comparable_under_assumptions": 4505,
+    "incompatible": 1702,
+    "excluded_not_a_genuine_pair": 106,
+    "comparable_after_deterministic_normalization": 1050,
+    "partially_comparable": 14
+  },
+  "self_consistency": {
+    "overall_pass_rate": 0.9938,
+    "pass_rate_excluding_excluded": 0.9937,
+    "pass_rate_on_judge_traced": 0.8872,
+    "n_judge_traced": 523,
+    "n_mismatches": 59,
+    "mismatch_kinds": {
+      "comparable|implied=unknown": 55,
+      "unknown|implied=comparable": 4
+    }
+  },
+  "evidence_text_leak_check": 0
+}

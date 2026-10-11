@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/PLACEHOLDER/paper3.2/schemas/comparability_certificate.schema.json",
+  "title": "Comparability certificate",
+  "description": "A machine-readable, auditable record of a single comparability decision between two reported result records (framework document section 6). Pointer-only provenance: no excerpt text is ever carried. Every status must be reconstructable from per_facet plus normalizations_applied.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "certificate_version", "certificate_id", "query", "cell", "left", "right",
+    "inspected_facets", "per_facet", "normalizations_applied",
+    "compatible_dimensions", "incompatible_dimensions", "missing_dimensions",
+    "status", "implied_status", "self_consistent", "typed_outcome",
+    "uncertainty", "provenance_only", "evidence_text_redistributed"
+  ],
+  "properties": {
+    "certificate_version": {"const": "1.0"},
+    "certificate_id": {"type": "string", "description": "Stable id: the pair_id, or leaderboard_id plus the two entry keys."},
+    "source": {"type": "string", "enum": ["census_pair", "leaderboard_pair"]},
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template", "must_agree_facets"],
+      "properties": {
+        "template": {"type": "string", "enum": ["Q_any", "Q_official", "Q_trend", "Q_threshold", "unconditional"]},
+        "must_agree_facets": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "dataset", "metric"],
+      "properties": {
+        "method": {"type": "string"},
+        "dataset": {"type": "string"},
+        "metric": {"type": "string"},
+        "metric_direction": {"type": ["string", "null"], "enum": ["higher", "lower", "unknown", null]}
+      }
+    },
+    "left": {"$ref": "#/$defs/record"},
+    "right": {"$ref": "#/$defs/record"},
+    "inspected_facets": {"type": "array", "items": {"type": "string"}},
+    "per_facet": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facet", "left", "right", "relation", "source"],
+        "properties": {
+          "facet": {"type": "string"},
+          "left": {"type": ["string", "null"]},
+          "right": {"type": ["string", "null"]},
+          "relation": {"type": "string", "enum": ["observed-same", "observed-different", "missing"]},
+          "source": {
+            "type": "string",
+            "enum": ["extracted", "asserted_by_judge"],
+            "description": "extracted = read from the pipeline's protocol facets; asserted_by_judge = the judge named this dimension as differing from text evidence the facet extractor does not capture (values are not recorded, so left/right are null)."
+          }
+        }
+      }
+    },
+    "normalizations_applied": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facet", "op", "side"],
+        "properties": {
+          "facet": {"type": "string"},
+          "op": {"type": "string"},
+          "side": {"type": "string", "enum": ["left", "right", "auto"]}
+        }
+      }
+    },
+    "compatible_dimensions": {"type": "array", "items": {"type": "string"}},
+    "incompatible_dimensions": {"type": "array", "items": {"type": "string"}},
+    "missing_dimensions": {"type": "array", "items": {"type": "string"}},
+    "status": {
+      "type": "string",
+      "enum": ["comparable", "incompatible", "unknown", "excluded"],
+      "description": "The status the resource reports for this pair (from the judge trace where one exists, otherwise the deterministic facet decision)."
+    },
+    "implied_status": {
+      "type": "string",
+      "enum": ["comparable", "incompatible", "unknown", "excluded"],
+      "description": "The status implied by per_facet plus normalizations_applied alone. Auditability requirement: this must equal status."
+    },
+    "self_consistent": {"type": "boolean", "description": "status == implied_status."},
+    "typed_outcome": {
+      "type": "string",
+      "enum": [
+        "directly_comparable",
+        "comparable_after_deterministic_normalization",
+        "comparable_under_assumptions",
+        "partially_comparable",
+        "incompatible",
+        "unknown",
+        "excluded_not_a_genuine_pair"
+      ]
+    },
+    "typed_outcome_rule": {"type": "string"},
+    "typed_outcome_requires": {"type": "string"},
+    "judge_cause": {"type": ["string", "null"], "description": "The existing judge cause, where the judge ran; null otherwise."},
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beyond_noise", "dispersion_source"],
+      "properties": {
+        "beyond_noise": {"type": ["boolean", "null"]},
+        "dispersion_source": {"type": ["string", "null"], "description": "reported | default | mixed"},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+      }
+    },
+    "provenance_only": {"const": true},
+    "evidence_text_redistributed": {"const": false}
+  },
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arxiv_id", "source_location", "value", "protocol"],
+      "properties": {
+        "arxiv_id": {"type": "string"},
+        "source_location": {"type": ["string", "null"], "description": "Section or table label. NOT excerpt text."},
+        "value": {"type": "number"},
+        "protocol": {
+          "type": "object",
+          "additionalProperties": {"type": ["string", "null"]},
+          "description": "facet -> observed value, or null when missing"
+        }
+      }
+    }
+  }
+}

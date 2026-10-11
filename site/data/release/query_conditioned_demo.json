@@ -1,0 +1,302 @@
+{
+  "what_this_is": "Deterministic query-conditioned pilot over the cleaned leaderboards. No LLM calls; no use of the frozen census gold. Registry: schemas/query_templates.json. Q_any must-agree {}, Q_official restricts to split=test then must-agrees {metric_surface, unit}, Q_trend must-agrees {split, metric_surface, unit} and partitions by arXiv publication year, Q_threshold fixes the champion and the runner-up threshold from the principal Q_official set and tests whether the champion clears that threshold under every full protocol in which it meets a peer.",
+  "template_registry": "schemas/query_templates.json (schema_version 1.0.0)",
+  "n_leaderboards_total": 4438,
+  "n_leaderboards_scored": 3061,
+  "excluded": {
+    "unknown_metric_direction_or_under_2_records": 1377
+  },
+  "n_multi_protocol_scored": 190,
+  "n_multi_protocol_total": 215,
+  "status_distribution_by_query": {
+    "Q_any": {
+      "robust": 3061
+    },
+    "Q_official": {
+      "insufficient": 1745,
+      "robust": 1259,
+      "conditional": 57
+    },
+    "Q_trend": {
+      "insufficient": 1584,
+      "robust": 1412,
+      "conditional": 65
+    },
+    "Q_threshold": {
+      "insufficient": 3056,
+      "robust": 3,
+      "conditional": 2
+    }
+  },
+  "structural_note_Q_any": "Q_any is robust on every leaderboard BY CONSTRUCTION: with no must-agree facet there is exactly one comparison set, so the naive query can never report uncertainty. That is the failure mode the query-conditioned framing targets, not a finding.",
+  "headline_conditional_fraction": {
+    "definition": "PRIMARY: of multi-protocol leaderboards where Q_official is answerable AND robust, the fraction whose Q_any winner differs from the Q_official winner (the answer is conditional on the query even though it is robust within the query)",
+    "k": 42,
+    "n": 99,
+    "rate": 0.4242,
+    "wilson_ci95": [
+      0.3315,
+      0.5226
+    ],
+    "bootstrap_ci95": [
+      0.3333,
+      0.5253
+    ]
+  },
+  "conditional_fraction_all_multi_protocol": {
+    "definition": "SECONDARY, wider denominator: of ALL scored multi-protocol leaderboards, the fraction with Q_official robust AND a Q_any/Q_official winner flip. Boards where Q_official is insufficient count in the denominator and never in the numerator.",
+    "k": 42,
+    "n": 190,
+    "rate": 0.2211,
+    "wilson_ci95": [
+      0.1679,
+      0.2853
+    ],
+    "bootstrap_ci95": [
+      0.1632,
+      0.2842
+    ]
+  },
+  "conditional_fraction_whole_corpus": {
+    "definition": "conservative whole-corpus: same PRIMARY measure over ALL scored leaderboards with a robust Q_official, not only the demonstrably multi-protocol ones",
+    "k": 120,
+    "n": 1259,
+    "rate": 0.0953,
+    "wilson_ci95": [
+      0.0803,
+      0.1128
+    ],
+    "bootstrap_ci95": [
+      0.0802,
+      0.112
+    ]
+  },
+  "conditional_fraction_all_pwc_primary_grain": {
+    "definition": "same PRIMARY measure restricted to the all_pwc (well-specified identity) grain",
+    "k": 2,
+    "n": 17,
+    "rate": 0.1176,
+    "wilson_ci95": [
+      0.0329,
+      0.3434
+    ],
+    "bootstrap_ci95": [
+      0.0,
+      0.2941
+    ]
+  },
+  "q_official_answerability_multi_protocol": {
+    "robust": 99,
+    "conditional": 57,
+    "insufficient": 34
+  },
+  "q_official_internally_conditional": {
+    "definition": "of scored multi-protocol leaderboards, the fraction where Q_official is itself conditional: its own valid comparison sets disagree on the winner",
+    "k": 57,
+    "n": 190,
+    "rate": 0.3,
+    "wilson_ci95": [
+      0.2393,
+      0.3686
+    ],
+    "bootstrap_ci95": [
+      0.2368,
+      0.3632
+    ]
+  },
+  "q_threshold_conditional_fraction_answerable_multi_protocol": {
+    "definition": "PRIMARY threshold measure: of multi-protocol leaderboards where Q_threshold is answerable (a champion measured against a peer under >=2 protocols), the fraction whose margin is conditional: the official champion clears the runner-up threshold under some protocols but not all",
+    "k": 2,
+    "n": 5,
+    "rate": 0.4,
+    "wilson_ci95": [
+      0.1176,
+      0.7693
+    ],
+    "bootstrap_ci95": [
+      0.0,
+      0.8
+    ]
+  },
+  "q_threshold_conditional_fraction_over_all_multi_protocol": {
+    "definition": "same conditional count over ALL scored multi-protocol leaderboards (the insufficient boards, where the champion is not re-measured, count in the denominator): the unconditional prevalence of a protocol-dependent margin",
+    "k": 2,
+    "n": 190,
+    "rate": 0.0105,
+    "wilson_ci95": [
+      0.0029,
+      0.0376
+    ],
+    "bootstrap_ci95": [
+      0.0,
+      0.0263
+    ]
+  },
+  "q_threshold_conditional_fraction_answerable_whole_corpus": {
+    "definition": "conservative whole-corpus threshold measure: same, over ALL scored leaderboards where Q_threshold is answerable, not only the demonstrably multi-protocol ones",
+    "k": 2,
+    "n": 5,
+    "rate": 0.4,
+    "wilson_ci95": [
+      0.1176,
+      0.7693
+    ],
+    "bootstrap_ci95": [
+      0.0,
+      0.8
+    ]
+  },
+  "q_threshold_answerability": {
+    "n_answerable_whole_corpus": 5,
+    "n_answerable_multi_protocol": 5,
+    "note": "Q_threshold is insufficient on most boards because the official champion is usually measured against a peer under only one protocol; the answerable subset is exactly the boards where a cross-protocol margin test is possible."
+  },
+  "cross_check_vs_existing_winner_change": {
+    "note": "divergence_by_grain.json reports winner_change_rate 0.4632 on the same 190 scored multi-protocol boards. That measure compares the naive winner with the principal-CLUSTER winner and fires on any protocol restriction; the pilot measure is stricter, requiring the official-query answer to be robust across every official comparison set. The two are not the same quantity.",
+    "existing_winner_changed_rate_on_scored_multi_protocol": 0.4632
+  },
+  "intervals": {
+    "wilson": "matches divergence_by_grain.json, which uses Wilson not bootstrap; the bootstrap is reported alongside for parity with the brief",
+    "bootstrap": {
+      "draws": 4000,
+      "seed": 4242,
+      "unit": "leaderboard"
+    }
+  },
+  "sensitivity_unit_annotation_normalized": {
+    "what": "re-scores the pilot with the percent annotation moved from the metric surface to the unit facet (the item-2/3 correctness fix), WITHOUT rebuilding the released cleaned-leaderboard resource",
+    "n_multi_protocol_scored": 181,
+    "status_distribution_by_query": {
+      "Q_any": {
+        "robust": 3061
+      },
+      "Q_official": {
+        "insufficient": 1744,
+        "robust": 1262,
+        "conditional": 55
+      },
+      "Q_trend": {
+        "insufficient": 1583,
+        "robust": 1415,
+        "conditional": 63
+      },
+      "Q_threshold": {
+        "insufficient": 3056,
+        "robust": 3,
+        "conditional": 2
+      }
+    },
+    "headline_conditional_fraction": {
+      "primary": [
+        42,
+        99,
+        0.4242
+      ],
+      "normalized": [
+        40,
+        96,
+        0.4167
+      ],
+      "wilson_ci95_normalized": [
+        0.3231,
+        0.5166
+      ]
+    },
+    "conditional_fraction_all_multi_protocol": {
+      "primary": [
+        42,
+        190,
+        0.2211
+      ],
+      "normalized": [
+        40,
+        181,
+        0.221
+      ],
+      "wilson_ci95_normalized": [
+        0.1667,
+        0.2869
+      ]
+    },
+    "conditional_fraction_whole_corpus": {
+      "primary": [
+        120,
+        1259,
+        0.0953
+      ],
+      "normalized": [
+        119,
+        1262,
+        0.0943
+      ],
+      "wilson_ci95_normalized": [
+        0.0794,
+        0.1117
+      ]
+    },
+    "q_official_internally_conditional": {
+      "primary": [
+        57,
+        190,
+        0.3
+      ],
+      "normalized": [
+        55,
+        181,
+        0.3039
+      ],
+      "wilson_ci95_normalized": [
+        0.2415,
+        0.3744
+      ]
+    },
+    "q_threshold_conditional_fraction_answerable_multi_protocol": {
+      "primary": [
+        2,
+        5,
+        0.4
+      ],
+      "normalized": [
+        2,
+        5,
+        0.4
+      ],
+      "wilson_ci95_normalized": [
+        0.1176,
+        0.7693
+      ]
+    },
+    "q_threshold_conditional_fraction_over_all_multi_protocol": {
+      "primary": [
+        2,
+        190,
+        0.0105
+      ],
+      "normalized": [
+        2,
+        181,
+        0.011
+      ],
+      "wilson_ci95_normalized": [
+        0.003,
+        0.0394
+      ]
+    },
+    "q_threshold_conditional_fraction_answerable_whole_corpus": {
+      "primary": [
+        2,
+        5,
+        0.4
+      ],
+      "normalized": [
+        2,
+        5,
+        0.4
+      ],
+      "wilson_ci95_normalized": [
+        0.1176,
+        0.7693
+      ]
+    }
+  }
+}

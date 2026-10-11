@@ -1,0 +1,57 @@
+{
+ "title": "Protocol-qualified leaderboard explorer",
+ "stats": {
+  "boards": 4438,
+  "entries": 34247,
+  "ranked_entries": 16215,
+  "comparability_unknown_entries": 18032,
+  "certificates": 9471,
+  "certificates_census_pair": 3058,
+  "certificates_leaderboard_pair": 6413,
+  "schema_failures": 0,
+  "query_conditioned_boards": 3061,
+  "winner_changes": 120,
+  "winner_changes_with_certificate": 24,
+  "status_counts": {
+   "Q_any": {
+    "robust": 3061
+   },
+   "Q_official": {
+    "insufficient": 1745,
+    "robust": 1259,
+    "conditional": 57
+   },
+   "Q_trend": {
+    "insufficient": 1584,
+    "robust": 1412,
+    "conditional": 65
+   },
+   "Q_threshold": {
+    "insufficient": 3056,
+    "robust": 3,
+    "conditional": 2
+   }
+  },
+  "duplicate_certificate_ids": 583,
+  "certificates_sharing_an_id": 1285
+ },
+ "ranked_definition": "an entry whose split, metric surface and unit are all observed, so it sits in a same-protocol cluster and is ranked within it",
+ "certificate_scope": "all released census pairs; leaderboard pairs limited to the top-10 entries of each multi-protocol leaderboard (bound stated, not silent)",
+ "license": "CC-BY-SA 4.0",
+ "evidence_policy": "pointers only (arXiv id, abs URL, source location); no excerpt text",
+ "repo_url": "https://github.com/harishsiravuri/ml-result-comparability",
+ "demo_repo_url": "https://github.com/harishsiravuri/ml-result-comparability-demo",
+ "doi_version": "10.5281/zenodo.21715276",
+ "doi_concept": "10.5281/zenodo.21715275",
+ "snapshot": "Papers with Code archive frozen 2025-07-28",
+ "inputs": {
+  "paper3.2/data/cleaned_leaderboards/cleaned_leaderboards.jsonl": "b2dd904793a6f5dac0815a2936553d67aac2005e2dbb1cdc735fd79073ef2472",
+  "paper3.2/data/census/query_conditioned_by_leaderboard.jsonl": "932f1d82681fd439aacf0734f49af0a29d072772d69250efb3099e83ab28d048",
+  "paper3.2/data/census/query_conditioned_demo.json": "53c8acbef202f07b0384dad181e6ae02a422c1416cb29e938fd1db42687ed9dd",
+  "paper3.2/schemas/query_templates.json": "268c6179e699a9239a99b4b45c1a2f5ac6ca425e59be79601c380b39c9a66d5f",
+  "paper3.2/data/release/comparability_certificates.jsonl": "484edd43118b04e149da28ecf12e46b8a67cc00e52820a958242c1309dbf65f3",
+  "paper3.2/schemas/comparability_certificate.schema.json": "eaa40ed5816b08241869a6ef4c8728bb1996dcac5d728d24bcd41fb6a9cfafe5",
+  "paper3.2/data/census/certificates_summary.json": "e23e0542f5e26ce39a5091cabc1fa098fdbba84345989a13675b9f0698a7e9a8",
+  "paper5.2/data/benchmark_typed/dev.jsonl": "0491ebae2d34135b1e4f8385eb2133bfcb272b7e3a7c3e8a5cacfe462f5fd9e6"
+ }
+}

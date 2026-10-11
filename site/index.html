@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protocol-Qualified Leaderboards</title>
+<meta name="description" content="Ask a leaderboard question and compare the naive answer with the protocol-qualified answer and its machine-readable comparability certificate.">
+<link rel="stylesheet" href="style.css?v=6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5f8b'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>Protocol-qualified leaderboard explorer</h1>
+    <p class="tag">Agreement in a leaderboard cell is not comparability. Ask a question and compare the naive answer with the answer that holds under a stated protocol, together with the certificate that justifies it.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="query" aria-label="Query">
+    <div class="qrow">
+      <label class="field tmpl">
+        <span>Question template</span>
+        <select id="tmpl"></select>
+      </label>
+      <label class="field board">
+        <span>Benchmark and metric</span>
+        <div class="ac">
+          <input id="boardInput" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Type a benchmark or metric, e.g. PHOENIX, ImageNet, IDF1" aria-autocomplete="list" aria-controls="acList">
+          <ul id="acList" class="ac-list" role="listbox" hidden></ul>
+        </div>
+      </label>
+    </div>
+    <p id="questionText" class="qtext"></p>
+    <div class="examples">
+      <span class="ex-label">Worked examples</span>
+      <div id="examples" class="chips"></div>
+    </div>
+  </section>
+
+  <section id="result" class="result" aria-live="polite"></section>
+
+  <section id="certSection" class="card cert-section" hidden>
+    <h2>Certificate</h2>
+    <p class="muted small" id="certIntro"></p>
+    <div id="certSlots" class="slot-tabs"></div>
+    <div id="certBody"></div>
+  </section>
+
+  <section id="boardSection" class="card" hidden>
+    <h2>Board view</h2>
+    <p class="muted small">One raw board, split into comparable sub-boards. Records in a sub-board share split, metric surface and unit. Records missing any of the three are flagged, never ranked. Select any two records to open their certificate.</p>
+    <div id="boardBody"></div>
+  </section>
+
+  <section id="typedSection" class="card" hidden>
+    <h2>Typed comparative questions on this board</h2>
+    <p class="muted small">Comparative-QA records with a typed answer (robust, possible, conditional, contested, insufficient evidence, or invalid premise). Development records only.</p>
+    <div id="typedBody"></div>
+  </section>
+
+  <section class="card about">
+    <h2>How to read the answers</h2>
+    <div id="templateHelp" class="tmpl-help"></div>
+    <dl class="status-help" id="statusHelp"></dl>
+  </section>
+</main>
+
+<footer class="stats">
+  <div class="wrap">
+    <ul id="statsStrip" class="strip"></ul>
+    <p class="links" id="links"></p>
+    <p class="licence" id="licence"></p>
+  </div>
+</footer>
+
+<script src="app.js?v=6"></script>
+</body>
+</html>

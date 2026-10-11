@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Versioned registry of query-conditioned comparability templates (framework document section 3). Each template maps to the protocol facets records must agree on to share a valid comparison set, plus any restrictions. Status semantics are shared and follow consistent query answering over inconsistent databases.",
+  "status_semantics": {
+    "robust": "The query answer holds in every valid comparison set (the CQA consistent answer over all repairs).",
+    "conditional": "The query answer holds in some valid comparison sets but not all; it depends on which protocol you condition on.",
+    "insufficient": "No valid comparison set is large enough to answer (the missing-facet mass dominates, or the quantity is untestable on this leaderboard)."
+  },
+  "certificate_template_enum": [
+    "Q_any",
+    "Q_official",
+    "Q_trend",
+    "Q_threshold",
+    "unconditional"
+  ],
+  "templates": [
+    {
+      "name": "Q_any",
+      "question": "Which method reports the best value under any protocol?",
+      "must_agree_facets": [],
+      "restrictions": [],
+      "answer": "argmax value (the naive leaderboard winner)",
+      "substantive": false,
+      "note": "Robust on every leaderboard by construction: with no must-agree facet there is exactly one comparison set, so the naive query can never report uncertainty. This is the failure mode the framing targets, not a finding."
+    },
+    {
+      "name": "Q_official",
+      "question": "Which method is best under the official (test) protocol?",
+      "must_agree_facets": [
+        "metric_surface",
+        "unit"
+      ],
+      "restrictions": [
+        {
+          "facet": "split",
+          "op": "equals",
+          "value": "test"
+        }
+      ],
+      "answer": "argmax value restricted to the official protocol",
+      "substantive": true,
+      "note": "Records not on the test split are excluded from every valid comparison set."
+    },
+    {
+      "name": "Q_trend",
+      "question": "How does the best justified value evolve over publication year?",
+      "must_agree_facets": [
+        "split",
+        "metric_surface",
+        "unit"
+      ],
+      "restrictions": [
+        {
+          "op": "partition_by",
+          "key": "publication_year"
+        }
+      ],
+      "answer": "a per-year sequence of argmax winners",
+      "substantive": true,
+      "note": "Publication year is taken from the arXiv identifier prefix, so it is the preprint year."
+    },
+    {
+      "name": "Q_threshold",
+      "question": "Does the official champion's lead over the runner-up survive protocol conditioning?",
+      "must_agree_facets": [
+        "split",
+        "metric_surface",
+        "unit"
+      ],
+      "restrictions": [
+        {
+          "op": "reference_from",
+          "template": "Q_official",
+          "detail": "champion M* and threshold tau (the best competitor value) are fixed from the principal Q_official comparison set"
+        },
+        {
+          "op": "test_over",
+          "detail": "full-protocol groups {split, metric_surface, unit} in which M* is measured against at least one other method"
+        }
+      ],
+      "answer": "whether M* strictly exceeds tau in every full-protocol group that measures it against a peer",
+      "substantive": true,
+      "derived_from": "Q_official",
+      "note": "The reference threshold and champion come from the official protocol; robustness is tested by whether that champion still clears the threshold under every other protocol in which it is measured against a peer, which is the faithful CQA reading of a margin query and avoids the vacuous case where the runner-up is trivially below the threshold within its own set. A leaderboard is insufficient when no principal official set exists or M* is measured against a peer under only one protocol."
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+[
+ {
+  "n": 1,
+  "board": "hash:fb3db959fa006931|metric:average-map",
+  "template": "Q_official",
+  "title": "ActivityNet-1.3 Average mAP",
+  "note": "The best raw number, 34.88 (BSN++), is a validation result. Under the official test protocol the answer is BSN at 32.84.",
+  "caveat": "Completeness was checked within the cited papers only: the BSN++ paper reports no ActivityNet-1.3 test average mAP. This is not a claim about the best result anywhere in the literature.",
+  "banner": null,
+  "chip": true,
+  "followup": 2,
+  "status": "robust",
+  "flip": true
+ },
+ {
+  "n": 2,
+  "board": "hash:fb3db959fa006931|metric:average-map",
+  "template": "Q_threshold",
+  "title": "ActivityNet-1.3: does the lead survive?",
+  "note": "Second view of the same board. BSN's lead over the next test entry (32.26) holds on the test split but not under validation, where BSN reports 30.03.",
+  "caveat": "Completeness was checked within the cited papers only.",
+  "banner": null,
+  "chip": false,
+  "followup": null,
+  "status": "conditional",
+  "flip": true
+ },
+ {
+  "n": 3,
+  "board": "pwc-dataset:mot17|hash:4dde914d469e1478",
+  "template": "Q_official",
+  "title": "MOT17 IDF1",
+  "note": "BYTE and ByteTrack are the same tracker. The naive leader is its validation run; the qualified answer is its MOT17 test-set entry.",
+  "caveat": "The validation and test runs also use different training data, so the 2-point gap is not only the effect of changing the evaluation set.",
+  "banner": "Top entry changes: validation score replaced by test score.",
+  "chip": true,
+  "followup": null,
+  "status": "robust",
+  "flip": true
+ },
+ {
+  "n": 4,
+  "board": "pwc-dataset:gopro|metric:psnr",
+  "template": "Q_official",
+  "title": "GoPro PSNR",
+  "note": "The naive leader has no split recorded, so no certificate can cover it.",
+  "caveat": "The qualified record's source is internally inconsistent: its supplement calls the same 1,111 GoPro pairs a validation set in prose and test samples in a table. The test label is therefore uncertain.",
+  "banner": null,
+  "chip": true,
+  "followup": null,
+  "status": "robust",
+  "flip": true
+ },
+ {
+  "n": 5,
+  "board": "pwc-dataset:csl-daily|metric:wer",
+  "template": "Q_trend",
+  "title": "CSL-Daily WER by preprint year",
+  "note": "In 2023 the test-split and validation-split leaders differ, so the per-year answer is conditional.",
+  "caveat": "Years are the first-submission year of the arXiv preprint that reports each number, not the year a method or result first appeared. The 2023 values were checked against arXiv 2305.03614v3; later versions rename the method and change results. In 2025, SLA-Adapter and SLA-LoRA tie at 25.8. This view groups records by preprint year; it is not a historical performance frontier.",
+  "banner": null,
+  "chip": true,
+  "followup": null,
+  "status": "conditional",
+  "flip": false
+ },
+ {
+  "n": 6,
+  "board": "hash:2b958adf44f0cb1f|metric:bleu",
+  "template": "Q_official",
+  "title": "WMT'14 English-French BLEU",
+  "note": "No split was identified in the extracted records, so the official question cannot be answered.",
+  "caveat": "All four entries come from one paper (arXiv 1901.07291). The paper gives no explicit split label beside these numbers; its evaluation setup is inherited from a cited protocol. The abstention means no split was identified in the extracted records, not that the split cannot be recovered. The metric is BLEU in the source even where the record leaves it unrecorded.",
+  "banner": null,
+  "chip": true,
+  "followup": null,
+  "status": "insufficient",
+  "flip": false
+ }
+]
