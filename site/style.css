@@ -201,5 +201,5 @@ pre.json { background: var(--surface-2); border-radius: 8px; padding: 10px; over
 .audit.ok { color: var(--qual); }
 .audit.bad { color: var(--diff); }
 .audit.unsure { color: var(--cond); }
-.report { font-size: 12px; }
+.report { font-size: 12px; white-space: nowrap; }
 .chip.next { border-color: var(--accent); color: var(--accent); }
