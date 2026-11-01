@@ -1,10 +1,10 @@
-# Protocol-qualified leaderboard explorer
+# Leaderboard Check
 
-A static web demo. You ask a leaderboard question and see two answers side by side. The **naive answer** is the best raw number on the board. The **protocol-qualified answer** is the best number among entries whose split, metric surface and unit make them comparable under the question. Next to the qualified answer sits the machine-readable **comparability certificate** that justifies it.
+Is the top number a fair comparison? A static web demo. For any saved leaderboard you see two answers side by side. **The leaderboard says** is the best raw number on the board. The **fair comparison** is the best number among result records that share the split, metric name and unit the question needs. Below them, **How this answer was made** replays the same five stages for every leaderboard from saved records, and a machine-readable **comparability determination** backs the answer. A browse page lists all 4,438 leaderboards.
 
 Live site: <https://harishsiravuri.github.io/ml-result-comparability-demo/>
 
-Every displayed record carries a pointer to its source paper. Records that were checked by hand carry a badge. Every record has a **Report a label error** link that opens a pre-filled issue here.
+Every displayed record carries a pointer to its source paper. Records that were checked by hand carry a badge. In the expanded sections, every record has a **Report a label error** link that opens a pre-filled issue here.
 
 ## Run locally
 

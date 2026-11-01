@@ -3,78 +3,87 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Protocol-Qualified Leaderboards</title>
-<meta name="description" content="Ask a leaderboard question and compare the naive answer with the protocol-qualified answer and its machine-readable comparability certificate.">
-<link rel="stylesheet" href="style.css?v=7">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f5f8b'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
+<title>Leaderboard Check</title>
+<meta name="description" content="Is the top number on a machine-learning leaderboard a fair comparison? See the top number next to the best test-set result, how the answer was made, and the comparability determination behind it.">
+<link rel="stylesheet" href="style.css?v=29">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232a4d8f'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
-<header class="top">
-  <div class="wrap">
-    <h1>Protocol-qualified leaderboard explorer</h1>
-    <p class="tag">Agreement in a leaderboard cell is not comparability. Ask a question and compare the naive answer with the answer that holds under a stated protocol, together with the certificate that justifies it.</p>
-  </div>
-</header>
+<div class="wrap">
+  <header class="top"><h1><a href="#">Leaderboard Check</a></h1></header>
 
-<main class="wrap">
-  <section class="query" aria-label="Query">
-    <div class="qrow">
-      <label class="field tmpl">
-        <span>Question template</span>
-        <select id="tmpl"></select>
-      </label>
-      <label class="field board">
-        <span>Benchmark and metric</span>
-        <div class="ac">
-          <input id="boardInput" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="Type a benchmark or metric, e.g. PHOENIX, ImageNet, IDF1" aria-autocomplete="list" aria-controls="acList">
-          <ul id="acList" class="ac-list" role="listbox" hidden></ul>
-        </div>
-      </label>
-    </div>
-    <p id="questionText" class="qtext"></p>
-    <div class="examples">
-      <span class="ex-label">Worked examples</span>
-      <div id="examples" class="chips"></div>
-    </div>
-  </section>
+  <main>
+    <section id="boardView">
+      <p class="intro">Leaderboards rank AI methods by one number. But papers measure that number in different ways. Some use <b>validation data</b>, which researchers use while tuning a method. Others use <b>test data</b>, held back for the final measurement. Ranking the two together is like ranking practice-exam scores with final-exam scores. This page shows the top number next to the best number from a fair comparison.</p>
+      <h2 class="ask" id="ask">Loading&hellip;</h2>
+      <p class="gloss" id="gloss"></p>
+      <div class="duo" id="cards"></div>
+      <p class="why" id="why"></p>
+      <p class="caveat" id="caveat" hidden></p>
+      <div class="explore">
+        <div class="switch" id="modeSwitch" role="group" aria-label="Question type" hidden></div>
+        <div class="row"><span class="small muted">Try another research task:</span><div class="chips" id="chips"></div></div>
+      </div>
 
-  <section id="result" class="result" aria-live="polite"></section>
+      <section class="made">
+        <h2>How this answer was made</h2>
+        <p class="madeline">The same five stages run on every leaderboard. Select a stage to see its data.</p>
+        <div id="pipeWrap"><div class="pipe" id="pipe"></div><div class="flow" id="flow"></div><p class="legend"><span class="lg test"></span>test set <span class="lg other"></span>other split <span class="lg unk"></span>split not recorded <span class="lg-note">Each dot is one result record. In the answer box, the best value is at the top.</span><button type="button" class="linkish" id="flowToggle">Pause</button></p><div class="peek" id="peek" hidden></div></div>
+      </section>
 
-  <section id="certSection" class="card cert-section" hidden>
-    <h2>Certificate</h2>
-    <p class="muted small" id="certIntro"></p>
-    <div id="certSlots" class="slot-tabs"></div>
-    <div id="certBody"></div>
-  </section>
+      <div class="more">
+        <details id="certSection">
+          <summary>Comparability determination <span>&middot; what matched and what differed</span></summary>
+          <div class="det">
+            <p class="muted small" id="certIntro"></p>
+            <div id="certSlots" class="chips slot-tabs"></div>
+            <div id="certBody"></div>
+          </div>
+        </details>
+        <details id="boardSection">
+          <summary id="boardSummary">All records, grouped by setup</summary>
+          <div class="det" id="boardBody"></div>
+        </details>
+        <details id="thresholdSection">
+          <summary id="thresholdSummary">Does the lead hold?</summary>
+          <div class="det" id="thresholdBody"></div>
+        </details>
+        <details id="readSection">
+          <summary>How to read this, and known errors <span>&middot; 14 of 56 hand-checked labels were wrong</span></summary>
+          <div class="det">
+            <p id="auditText"></p>
+            <h3>The questions</h3>
+            <div id="templateHelp" class="tmpl-help"></div>
+            <h3>Words used here</h3>
+            <dl class="status-help">
+              <dt>Validation and test sets</dt><dd>Validation data guide choices while a method is tuned. Test data are kept back for the final measurement. Each is a data split.</dd>
+              <dt>Fair comparison</dt><dd>The best recorded number among records that share the setup the question needs. A record of unknown setup stands alone, so it cannot win.</dd>
+              <dt>Result record</dt><dd>One value reported for one method, with its paper, split, metric name, unit and source location.</dd>
+              <dt>Evaluation setup</dt><dd>The data split, the metric name as written, and the unit of a result record.</dd>
+              <dt>Valid comparison set</dt><dd>Result records that share split, metric name and unit. This site calls each set a group.</dd>
+              <dt>Comparability determination</dt><dd>One recorded decision about two result records, with its status. Released file and field names keep the older word &ldquo;certificate&rdquo;.</dd>
+              <dt>Not enough evidence</dt><dd>No two extracted records can be compared under the question, so no answer is given.</dd>
+              <dt>Pointers</dt><dd>&ldquo;Extracted table #N (parser order)&rdquo; is the position of a table in the parsed paper, counted from 0. It may differ from the paper&rsquo;s own table number.</dd>
+            </dl>
+            <details id="typedSection" hidden>
+              <summary id="typedSummary">Typed comparative questions</summary>
+              <div class="det" id="typedBody"></div>
+            </details>
+            <p class="small" id="downloads"></p>
+            <p class="small muted" id="licence"></p>
+          </div>
+        </details>
+      </div>
+    </section>
 
-  <section id="boardSection" class="card" hidden>
-    <h2>Board view</h2>
-    <p class="muted small">One raw board, split into comparable sub-boards. Records in a sub-board share split, metric surface and unit. Records missing any of the three are flagged, never ranked. Select any two records to open their certificate.</p>
-    <div id="boardBody"></div>
-  </section>
+    <section id="browseView" hidden></section>
+  </main>
 
-  <section id="typedSection" class="card" hidden>
-    <h2>Typed comparative questions on this board</h2>
-    <p class="muted small">Comparative-QA records with a typed answer (robust, possible, conditional, contested, insufficient evidence, or invalid premise). Development records only.</p>
-    <div id="typedBody"></div>
-  </section>
-
-  <section class="card about">
-    <h2>How to read the answers</h2>
-    <div id="templateHelp" class="tmpl-help"></div>
-    <dl class="status-help" id="statusHelp"></dl>
-  </section>
-</main>
-
-<footer class="stats">
-  <div class="wrap">
-    <ul id="statsStrip" class="strip"></ul>
-    <p class="links" id="links"></p>
-    <p class="licence" id="licence"></p>
-  </div>
-</footer>
-
-<script src="app.js?v=6"></script>
+  <footer class="foot">
+    <p id="footStats"></p>
+    <p id="footLinks"></p>
+  </footer>
+</div>
+<script src="app.js?v=31"></script>
 </body>
 </html>

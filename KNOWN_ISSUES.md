@@ -2,29 +2,29 @@
 
 These are issues in the frozen input files. The demo does not modify those files. Each item is a candidate fix for a future dataset release.
 
-1. **Shared certificate identifiers.**
-   - 583 `certificate_id` values are shared by 1,285 certificates in `comparability_certificates.jsonl`.
+1. **Shared comparability determination identifiers.**
+   - 583 `certificate_id` values are shared by 1,285 comparability determinations in `comparability_certificates.jsonl`.
    - The leaderboard-pair identifier is `board::arxiv:value::arxiv:value`, so two methods from the same paper with the same value collide.
    - Example: on PHOENIX-2014 WER, "DDA vs DDA w/o Auto-Enc" and "pre-trained mBART vs DDA w/o Auto-Enc" share one identifier.
-   - The demo keys certificates by board and both records, and notes the shared identifier in the certificate panel.
+   - The demo keys comparability determinations by board and both records, and notes the shared identifier in the comparability determination panel.
    - Suggested fix: include the method name or a record index in the identifier.
 
-2. **Certificates are not query-conditioned.**
-   - Every certificate carries `query.template = "unconditional"`, with must-agree facets split, metric surface and unit.
+2. **Comparability determinations are not conditioned on the question.**
+   - Every comparability determination carries `query.template = "unconditional"`, with must-agree fields split, metric name and unit.
    - This holds whichever template the user asked.
-   - The demo explains this in one line in the certificate panel.
+   - The demo explains this in one line in the comparability determination panel.
 
 3. **Noise band missing for leaderboard pairs.**
-   - The 6,413 leaderboard-pair certificates have `uncertainty.beyond_noise = null`.
+   - The 6,413 leaderboard-pair comparability determinations have `uncertainty.beyond_noise = null`.
    - The frozen rule was applied to the 3,058 census pairs only.
 
-4. **Self-inconsistent certificates.**
-   - 59 census-pair certificates have `status` different from `implied_status`: 55 are comparable with implied unknown, and 4 are unknown with implied comparable.
+4. **Self-inconsistent comparability determinations.**
+   - 59 census-pair comparability determinations have `status` different from `implied_status`: 55 are comparable with implied unknown, and 4 are unknown with implied comparable.
    - All 59 are judge-traced, so the judge cause outranks the facet reading.
-   - The demo does not display census-pair certificates.
+   - The demo does not display census-pair comparability determinations.
 
-5. **Metric-surface spelling splits comparison sets.**
-   - Comparison sets are keyed on the raw metric surface, so `acc`, `accuracy`, `top-1 acc` and `top-1 accuracy` land in different sets, as do `f1` and `f1-score`, and `dice` and `dsc`.
+5. **Metric-name spelling splits valid comparison sets.**
+   - Valid comparison sets are keyed on the metric name as written, so `acc`, `accuracy`, `top-1 acc` and `top-1 accuracy` land in different valid comparison sets, as do `f1` and `f1-score`, and `dice` and `dsc`.
    - We inspected the 57 boards where `Q_official` is conditional. Nearly all split on spelling variants of this kind. A few, for example `accuracy` vs `average accuracy`, may name genuinely different quantities.
    - The paper3.2 percent-annotation sensitivity analysis covers only the `(%)` case, which moves headline rates by under one percentage point. It does not cover these synonyms.
 

@@ -1,21 +1,22 @@
-/* Protocol-qualified leaderboard explorer. Static, no backend: every answer is precomputed
-   by build/precompute.py from frozen data and only read here. */
+/* Leaderboard Check. Static, no backend: every answer is precomputed by build/precompute.py
+   from frozen data and only read here. */
 (function () {
   "use strict";
 
-  const TEMPLATES = ["Q_official", "Q_trend", "Q_threshold", "Q_any"];
-  const TEMPLATE_LABEL = {
-    Q_official: "Q_official: best under the official (test) protocol",
-    Q_trend: "Q_trend: best per publication year",
-    Q_threshold: "Q_threshold: does the official lead survive?",
-    Q_any: "Q_any: best raw number (naive)",
-  };
-  const STATUS_LABEL = { robust: "robust", conditional: "conditional", insufficient: "insufficient evidence" };
+  const TEMPLATES = ["Q_official", "Q_trend", "Q_threshold"];
+  const PLAIN_TEMPLATE = { Q_official: "test set only", Q_trend: "by year", Q_threshold: "does the lead hold?", Q_any: "the leaderboard says" };
+  const QUESTION_TEXT = { Q_any: "Which method reports the top value, whatever the setup?", Q_official: "Which method has the best value on the official test split?", Q_trend: "How does the best value change by year of the reporting paper?", Q_threshold: "Does the best test record stay ahead of its nearest competitor in every setup where both appear?" };
+  const FACET_PLAIN = { split: "split", metric_surface: "metric name", unit: "unit" };
+  /* Frozen data files keep their released wording; this maps it to the site's fixed terms for display. */
+  const plainTerms = (s) => String(s == null ? "" : s)
+    .replace(/ \(default per the honesty rule\)/g, "")
+    .replace(/metric[_ -]surface/g, "metric name").replace(/\bsurface=/g, "metric=")
+    .replace(/protocol cluster\(s\)/g, "valid comparison set(s)").replace(/unknown protocol/g, "unknown setup")
+    .replace(/official comparison sets/g, "valid comparison sets").replace(/\bprotocol\b/g, "evaluation setup")
+    .replace(/\bfacet/g, "field");
+  const STATUS_LABEL = { robust: "holds in every group", conditional: "depends on the group", insufficient: "not enough evidence" };
 
-  const S = {
-    meta: null, templates: null, index: [], examples: [], shards: {},
-    board: null, tmpl: "Q_official", picks: [], slot: 0, exampleN: null,
-  };
+  const S = { meta: null, templates: null, index: [], examples: [], shards: {}, board: null, tmpl: "Q_official", picks: [], slot: 0, exampleN: null };
 
   // ------------------------------------------------------------------ helpers
   const $ = (id) => document.getElementById(id);
@@ -46,9 +47,9 @@
       if (v == null) return "<span class='pchip missing' title='" + label + " not recorded in the extracted data'>" + label + ": not recorded</span>";
       let cls = "pchip";
       if (k === "split") cls += v === "test" ? " split-test" : " split-other";
-      return "<span class='" + cls + "' title='" + label + "'>" + label + ": " + esc(v) + "</span>";
+      return "<span class='" + cls + "' title='" + (k === "metric_surface" ? "metric name as written" : label) + "'>" + label + ": " + esc(v) + "</span>";
     };
-    return "<span class='proto'>" + f("split", "split") + f("metric_surface", "metric") + f("unit", "unit") + "</span>";
+    return "<span class='proto'>" + f("split", "split") + f("metric_surface", "metric name") + f("unit", "unit") + "</span>";
   }
   function protoShort(p) {
     const sp = p && p.split != null ? p.split : null;
@@ -58,7 +59,7 @@
   }
   const ABBREV = { acc: "accuracy", top1acc: "top1accuracy", f1score: "f1", fscore: "f1", fmeasure: "f1", dsc: "dice", meaniou: "miou" };
   const canonLabel = (s) => { const c = String(s || "").toLowerCase().replace(/\(\s*%\s*\)/g, "").replace(/[^a-z0-9@]+/g, ""); return ABBREV[c] || c; };
-  /* Interface note (not part of any certificate): two protocol groups whose split and unit agree and whose
+  /* Interface note (not part of any comparability determination): two setup groups whose split and unit agree and whose
      metric labels differ only in how they are written. Describes stored labels; changes no answer. */
   function spellingOnly(protos) {
     for (let i = 0; i < protos.length; i++) for (let j = i + 1; j < protos.length; j++) {
@@ -84,177 +85,6 @@
   const tieNote = (names) => (names.length ? " <span class='small muted'>(tied with " + names.map(esc).join(", ") + ")</span>" : "");
   const dirWord = () => (S.board.direction === "lower" ? "lower is better" : "higher is better");
 
-  function questionText(t, b) {
-    const ds = esc(b.dataset), m = esc(b.metric);
-    switch (t) {
-      case "Q_official": return "What is the best " + m + " on " + ds + " under the official (test) protocol?";
-      case "Q_trend": return "How has the best " + m + " on " + ds + " changed by publication year?";
-      case "Q_threshold": return "On " + ds + " (" + m + "), does the official champion’s lead survive protocol conditioning?";
-      default: return "What is the best " + m + " on " + ds + "?";
-    }
-  }
-
-  // ------------------------------------------------------------------ loading
-  async function init() {
-    const [meta, templates, index, examples] = await Promise.all([
-      getJSON("data/meta.json"), getJSON("data/templates.json"), getJSON("data/index.json"), getJSON("data/examples.json"),
-    ]);
-    Object.assign(S, { meta, templates, index, examples });
-    S.audit = new Map();
-    try {
-      const au = await getJSON("data/audit/hand_audit.json");
-      au.records.forEach((r) => S.audit.set(r.board + "#" + r.rid, r));
-      S.auditSummary = au.summary;
-    } catch (e) { /* the audit file is optional; badges simply do not show */ }
-    S.byId = new Map(index.map((r) => [r.id, r]));
-    renderStatic();
-    window.addEventListener("hashchange", fromHash);
-    await fromHash();
-  }
-
-  async function loadBoard(id) {
-    const row = S.byId.get(id);
-    if (!row) return null;
-    if (!S.shards[row.shard]) S.shards[row.shard] = await getJSON("data/boards/" + row.shard + ".json");
-    return S.shards[row.shard][id] || null;
-  }
-
-  async function fromHash() {
-    const h = new URLSearchParams(location.hash.slice(1));
-    let id = h.get("b"), t = h.get("q");
-    if (!id) { const ex = S.examples[0]; id = ex.board; t = ex.template; }
-    if (!TEMPLATES.includes(t)) t = "Q_official";
-    S.tmpl = t;
-    const b = await loadBoard(id);
-    if (!b) { $("result").innerHTML = "<div class='card'>Board not found: " + esc(id) + "</div>"; return; }
-    S.board = b; S.picks = []; S.slot = 0;
-    const ex = S.examples.find((e) => e.board === id && e.template === t);
-    S.exampleN = ex ? ex.n : null;
-    render();
-  }
-  function go(id, t) {
-    const h = "#q=" + encodeURIComponent(t) + "&b=" + encodeURIComponent(id);
-    if (location.hash === h) fromHash(); else location.hash = h;
-  }
-
-  // ------------------------------------------------------------------ static parts
-  function renderStatic() {
-    $("tmpl").innerHTML = TEMPLATES.map((t) => "<option value='" + t + "'>" + esc(TEMPLATE_LABEL[t]) + "</option>").join("");
-    $("tmpl").addEventListener("change", (e) => S.board && go(S.board.id, e.target.value));
-
-    $("examples").innerHTML = S.examples.filter((e) => e.chip !== false).map((e) =>
-      "<button class='chip' data-n='" + e.n + "'>" + esc(e.title) + "<span class='t'>" + esc(e.template) + "</span></button>").join("");
-    $("examples").addEventListener("click", (e) => {
-      const btn = e.target.closest(".chip"); if (!btn) return;
-      const ex = S.examples.find((x) => x.n === +btn.dataset.n); go(ex.board, ex.template);
-    });
-
-    const help = S.templates.templates.map((t) =>
-      "<div><b>" + esc(t.name) + "</b><br>" + esc(t.question) + "<br><span class='muted'>Must agree on: " +
-      (t.must_agree_facets.length ? esc(t.must_agree_facets.join(", ")) : "nothing") +
-      (t.restrictions.length && t.restrictions[0].op === "equals" ? "; split must be test" : "") +
-      (t.restrictions.length && t.restrictions[0].op === "partition_by" ? "; grouped by arXiv year" : "") +
-      "</span></div>").join("");
-    $("templateHelp").innerHTML = help;
-    const sem = S.templates.status_semantics;
-    $("statusHelp").innerHTML = Object.keys(sem).map((k) => "<dt>" + statusChip(k) + "</dt><dd>" + esc(sem[k]) + "</dd>").join("") +
-      "<dt class='muted'>labels</dt><dd>Split, metric and unit labels were extracted automatically from the papers. In two rounds of hand checks, 56 records were compared with the source papers: 11 had the wrong split label, 3 came from a different benchmark or table column, and 1 was unclear (the audit rows are downloadable below as <a href='data/audit/hand_audit.csv'>CSV</a>). Those records were drawn from boards with a winner change or an abstention, where errors are most likely, so this is not an error rate for the whole corpus. The worked examples show only records that passed the checks. Elsewhere, read a qualified answer as the best <i>recorded</i> value under the stated protocol, and follow the pointer to confirm it.</dd>" +
-      "<dt class='muted'>missing facet</dt><dd>Two records are compared only when both report every facet the question needs. A record that is missing one stands alone, so it can never win a qualified answer.</dd>";
-
-    const st = S.meta.stats;
-    const items = [
-      [st.boards, "leaderboards"], [st.entries, "entries in total"], [st.ranked_entries, "ranked entries (all three facets observed)"],
-      [st.certificates, "certificates"], [st.schema_failures, "schema failures"], [st.query_conditioned_boards, "boards answerable by query"],
-      [st.winner_changes, "winner changes under Q_official"],
-    ];
-    $("statsStrip").innerHTML = items.map(([n, l]) => "<li><b>" + fmt(n) + "</b><span>" + esc(l) + "</span></li>").join("");
-    $("links").innerHTML = "Dataset: <a href='" + esc(S.meta.repo_url) + "' target='_blank' rel='noopener'>ml-result-comparability</a> · " +
-      "Zenodo DOI <a href='https://doi.org/" + esc(S.meta.doi_version) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_version) + "</a> (v1.0.0; all versions: " +
-      "<a href='https://doi.org/" + esc(S.meta.doi_concept) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_concept) + "</a>) · " +
-      "Snapshot: " + esc(S.meta.snapshot) + ". Demo source and issue tracker: <a href='" + esc(S.meta.demo_repo_url) + "' target='_blank' rel='noopener'>ml-result-comparability-demo</a>.";
-    $("licence").innerHTML = "Data on this site are licensed under <a href='https://creativecommons.org/licenses/by-sa/4.0/' target='_blank' rel='noopener'>CC-BY-SA 4.0</a>. " +
-      "Evidence is given as pointers only (arXiv id, abstract URL, source location); no paper text is redistributed. All data are frozen and precomputed; this page makes no model or server calls. " +
-      "Download: <a href='data/release/comparability_certificates.jsonl'>certificates</a> (" + fmt(S.meta.stats.certificates) + "), " +
-      "<a href='data/release/comparability_certificate.schema.json'>certificate schema</a>, " +
-      "<a href='data/release/query_templates.json'>query templates</a>, " +
-      "<a href='data/release/query_conditioned_by_leaderboard.jsonl'>query-conditioned results</a>, " +
-      "<a href='data/release/SHA256SUMS'>checksums</a>, hand audit (<a href='data/audit/hand_audit.json'>JSON</a>, <a href='data/audit/hand_audit.csv'>CSV</a>).";
-
-    setupAutocomplete();
-  }
-
-  // ------------------------------------------------------------------ autocomplete
-  function setupAutocomplete() {
-    const input = $("boardInput"), list = $("acList");
-    let items = [], active = -1;
-    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    S.index.forEach((r) => { r._k = norm(r.dataset + " " + r.metric); });
-    function show() {
-      const qs = norm(input.value);
-      if (!qs) { list.hidden = true; return; }
-      const toks = qs.split(" ");
-      items = S.index.filter((r) => toks.every((t) => r._k.includes(t)))
-        .sort((a, b) => (b.scored - a.scored) || (b.n - a.n)).slice(0, 14);
-      active = items.length ? 0 : -1;
-      list.innerHTML = items.length ? items.map((r, i) =>
-        "<li role='option' data-i='" + i + "' aria-selected='" + (i === active) + "'><span class='ac-main'>" + esc(r.dataset) + " · " + esc(r.metric) +
-        "</span><span class='ac-meta'>" + r.n + " entries" + (r.scored ? (r.flip ? " · winner changes" : "") : " · board only") + "</span></li>").join("")
-        : "<li class='muted'>No matching benchmark</li>";
-      list.hidden = false;
-    }
-    function choose(i) {
-      const r = items[i]; if (!r) return;
-      list.hidden = true; input.value = r.dataset + " · " + r.metric; input.blur();
-      go(r.id, S.tmpl);
-    }
-    input.addEventListener("input", show);
-    input.addEventListener("focus", () => { input.select(); });
-    input.addEventListener("keydown", (e) => {
-      if (list.hidden) return;
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        [...list.children].forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
-        list.children[active] && list.children[active].scrollIntoView({ block: "nearest" });
-      } else if (e.key === "Enter") { e.preventDefault(); choose(active); }
-      else if (e.key === "Escape") { list.hidden = true; }
-    });
-    list.addEventListener("mousedown", (e) => { const li = e.target.closest("li[data-i]"); if (li) { e.preventDefault(); choose(+li.dataset.i); } });
-    document.addEventListener("click", (e) => { if (!e.target.closest(".ac")) list.hidden = true; });
-  }
-
-  // ------------------------------------------------------------------ main render
-  function render() {
-    const b = S.board;
-    $("tmpl").value = S.tmpl;
-    $("boardInput").value = b.dataset + " · " + b.metric;
-    $("questionText").innerHTML = questionText(S.tmpl, b);
-    const parentN = (() => { const e = S.examples.find((x) => x.n === S.exampleN); if (!e) return null;
-      if (e.chip === false) { const p = S.examples.find((x) => x.followup === e.n); return p ? p.n : null; } return e.n; })();
-    [...$("examples").children].forEach((c) => c.classList.toggle("active", +c.dataset.n === parentN));
-    const ex = S.examples.find((e) => e.n === S.exampleN);
-
-    if (!b.scored) {
-      $("result").innerHTML = "<div class='card abstain'><div class='big'>Not answerable as a query</div><p>This board is shown for inspection only: " +
-        esc(b.unscored_reason) + ". Without a known metric direction there is no “best” to report, so no template is evaluated on it.</p></div>";
-      $("certSection").hidden = true;
-    } else {
-      const fu = ex && ex.followup ? S.examples.find((e) => e.n === ex.followup) : null;
-      const back = ex && ex.chip === false ? S.examples.find((e) => e.followup === ex.n) : null;
-      $("result").innerHTML = (ex ? "<p class='muted small'>Worked example: " + esc(ex.note) + "</p>" +
-        (ex.caveat ? "<p class='small'><b>Caveat:</b> " + esc(ex.caveat) + "</p>" : "") : "") + renderAnswers() +
-        (fu ? "<p><button class='chip next' data-go='" + fu.n + "'>Next view on this board: " + esc(fu.title) + " \u2192</button></p>" : "") +
-        (back ? "<p><button class='chip next' data-go='" + back.n + "'>\u2190 Back to the first view</button></p>" : "");
-      $("result").onclick = (e) => {
-        const btn = e.target.closest("[data-go]"); if (!btn) return;
-        const x = S.examples.find((y) => y.n === +btn.dataset.go); go(x.board, x.template);
-      };
-      renderCertificates();
-    }
-    renderBoard();
-    renderTyped();
-  }
-
   const VERDICT_TEXT = {
     ok: ["ok", "\u2713 checked by hand: value and split match the source"],
     missing: ["ok", "\u2713 checked by hand: value and split match; the paper also reports a better same-method test value that is not a record"],
@@ -278,7 +108,7 @@
       "**Record:** " + r.method + ", value " + val(r.value) + " (record id " + r.rid + ")",
       "**Paper:** https://arxiv.org/abs/" + (r.arxiv_id || "?"),
       "**Pointer:** `" + (r.source_location || "none recorded") + "` (" + pointer(r.source_location).replace(/&[^;]+;/g, "\"") + ")",
-      "**Stored protocol:** split = " + (p.split == null ? "not recorded" : p.split) + "; metric surface = " +
+      "**Stored evaluation setup:** split = " + (p.split == null ? "not recorded" : p.split) + "; metric name = " +
         (p.metric_surface == null ? "not recorded" : p.metric_surface) + "; unit = " + (p.unit == null ? "not recorded" : p.unit),
       "**Demo view:** " + view, "",
       "**What the source says** (split, value, table/section and page):", "",
@@ -286,108 +116,6 @@
     return S.meta.demo_repo_url + "/issues/new?labels=label-error&title=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(body);
   }
   const reportLink = (r) => "<a class='report' href='" + esc(reportURL(r)) + "' target='_blank' rel='noopener' title='Opens a pre-filled GitHub issue'>Report a label error</a>";
-
-  function recordBlock(r, opts) {
-    opts = opts || {};
-    return "<div class='big'>" + val(r.value) + "</div>" +
-      "<div class='method'>" + esc(r.method) + "</div>" +
-      "<ul class='facts'>" +
-      "<li><span class='k'>protocol</span>" + protoChips(r.proto) + "</li>" +
-      "<li><span class='k'>source</span>" + paperLink(r) + ", " + pointer(r.source_location) + "</li>" +
-      (opts.extra || "") +
-      "<li><span class='k'>audit</span>" + (auditBadge(r) || "<span class='muted'>not hand-checked</span>") + " \u00b7 " + reportLink(r) + "</li></ul>";
-  }
-
-  function naivePanel() {
-    const a = S.board.answers.Q_any, r = rec(a.winner_rid);
-    return "<div class='panel naive'><h3>Naive answer <span class='mono'>Q_any</span></h3>" +
-      "<p class='sub'>Best raw number among all " + a.n_records + " entries, any protocol (" + dirWord() + ").</p>" +
-      recordBlock(r) + "</div>";
-  }
-
-  function renderAnswers() {
-    const A = S.board.answers, t = S.tmpl, naive = rec(A.Q_any.winner_rid);
-    let qual = "", qualName = null;
-    if (t === "Q_any") {
-      qual = "<div class='panel qual'><h3>Same question, no protocol <span class='mono'>Q_any</span></h3>" +
-        "<p class='sub'>With no facet required to agree there is a single comparison set, so this reading is " + statusChip("robust") +
-        " by construction. It cannot report uncertainty, which is why the qualified templates exist.</p>" + recordBlock(naive) + "</div>";
-      qualName = naive.method;
-    } else if (t === "Q_official") {
-      const o = A.Q_official;
-      let body;
-      if (o.status === "robust") {
-        const r = rec(o.winner_rid), set = o.sets[0];
-        qualName = r.method;
-        const tie = tiedWith(set.rids, o.winner_rid);
-        body = (tie.length ? "<p class='note'>Tie: " + esc(r.method) + " shares the best value with " + tie.map(esc).join(", ") + ".</p>" : "") +
-          "<p class='sub'>Best entry among the " + set.rids.length + " that report the test split and share metric surface “" + esc(set.key.metric_surface) +
-          "” and unit “" + esc(set.key.unit || "") + "”.</p>" + recordBlock(r, { extra: excludedLine(o) });
-      } else if (o.status === "conditional") {
-        body = "<p class='sub'>" + esc(o.reason) + "</p><ul class='setlist'>" + o.sets.map((s) => {
-          const w = rec(s.winner_rid);
-          return "<li><b>" + val(w.value) + "</b> " + esc(w.method) + "<br>" + protoChips(w.proto) + " <span class='muted small'>(" + s.rids.length + " records)</span></li>";
-        }).join("") + "</ul>" + (spellingOnly(o.sets.map((x) => Object.assign({ split: "test" }, x.key))) ? SPELLING_NOTE : "") +
-          "<ul class='facts'>" + excludedLine(o) + "</ul>";
-      } else {
-        body = abstention(o.reason, excludedLine(o));
-      }
-      qual = "<div class='panel qual'><h3>Protocol-qualified answer <span class='mono'>Q_official</span>" + statusChip(o.status) + "</h3>" + body + "</div>";
-    } else if (t === "Q_trend") {
-      qual = "<div class='panel qual'><h3>Protocol-qualified trend <span class='mono'>Q_trend</span>" + statusChip(A.Q_trend.status) + "</h3>" + trendBody(A.Q_trend) + "</div>";
-    } else if (t === "Q_threshold") {
-      const q = A.Q_threshold;
-      if (q.champion_rid != null && q.status !== "insufficient") qualName = rec(q.champion_rid).method;
-      qual = "<div class='panel qual'><h3>Margin under protocol conditioning <span class='mono'>Q_threshold</span>" + statusChip(q.status) + "</h3>" + thresholdBody(q) + "</div>";
-    }
-    let flag = "";
-    if (t === "Q_official" || t === "Q_threshold") {
-      const exb = S.examples.find((e) => e.n === S.exampleN);
-      if (qualName && qualName !== naive.method) flag = "<div class='flag'>\u26a0 " + esc(exb && exb.banner ? exb.banner : "Winner changes: the naive leader is not the protocol-qualified answer.") + "</div>";
-      else if (qualName) flag = "<div class='flag same'>The naive and qualified answers name the same method.</div>";
-      else flag = "<div class='flag same'>No single qualified winner, so there is nothing to compare with the naive leader.</div>";
-    }
-    return flag + "<div class='panels'>" + naivePanel() + qual + "</div>";
-  }
-
-  function excludedLine(o) {
-    const e = o.excluded;
-    return "<li><span class='k'>left out</span>" + e.other_split + " on another split, " + e.split_not_reported + " with no split identified in the extracted record" +
-      (e.isolated_test_records ? ", " + e.isolated_test_records + " test record(s) with no peer sharing metric and unit" : "") + "</li>";
-  }
-
-  function abstention(reason, extra) {
-    return "<div class='abstain'><div class='big'>Insufficient qualified evidence</div>" +
-      "<p>The system abstains. This is an answer, not an error: under this question no two extracted records are comparable.</p>" +
-      "<p class='small'>" + esc(reason || "") + "</p>" + (extra ? "<ul class='facts'>" + extra + "</ul>" : "") + "</div>";
-  }
-
-  function trendBody(tr) {
-    if (tr.status === "insufficient") return abstention(tr.reason);
-    const rows = tr.years.map((y) => y.sets.map((s, i) => {
-      const w = rec(s.winner_rid);
-      return "<tr><td>" + (i === 0 ? "<b>" + y.year + "</b>" + (y.agree ? "" : " " + statusChip("conditional")) : "") + "</td><td class='num'>" + val(w.value) +
-        "</td><td>" + esc(w.method) + tieNote(tiedWith(s.rids, s.winner_rid)) + "</td><td>" + protoShort(w.proto) + "</td><td class='num'>" + s.rids.length + "</td></tr>";
-    }).join("")).join("");
-    return "<p class='sub'>Winner per source-preprint year (the first-submission year of the arXiv paper that reports the number) within each set that shares split, metric surface and unit. This groups records by preprint year; it is not a historical performance frontier." +
-      (tr.reason ? " " + esc(tr.reason) : " Every year has one winner in every set.") + "</p>" +
-      "<div class='tbl-scroll'><table><thead><tr><th>Year</th><th class='num'>Value</th><th>Winner</th><th>Protocol</th><th class='num'>n</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
-  }
-
-  function thresholdBody(q) {
-    if (q.champion_rid == null) return abstention(q.reason);
-    const c = rec(q.champion_rid), tr = rec(q.tau_rid);
-    let html = "<p class='sub'>The official champion and the bar τ (best competitor) come from the largest official comparison set. " +
-      "The champion must beat τ in every full-protocol group where it meets a peer.</p>" +
-      "<ul class='facts'><li><span class='k'>champion</span><b>" + esc(c.method) + "</b> " + val(c.value) + " " + protoChips(c.proto) + "</li>" +
-      "<li><span class='k'>bar τ</span>" + val(q.tau) + " (" + esc(tr.method) + ", " + paperLink(tr) + ")</li></ul>";
-    if (q.status === "insufficient") return html + abstention(q.reason + " (" + (q.groups.length) + " group).");
-    html += "<div class='tbl-scroll'><table><thead><tr><th>Protocol group</th><th class='num'>Champion</th><th>Clears τ?</th><th class='num'>n</th></tr></thead><tbody>" +
-      q.groups.map((g) => "<tr><td>" + protoShort(g.key) + "</td><td class='num'>" + val(rec(g.champion_rid).value) + "</td><td>" +
-        (g.clears ? "<span class='rel-same'>yes</span>" : "<span class='rel-diff'>no</span>") + "</td><td class='num'>" + g.rids.length + "</td></tr>").join("") +
-      "</tbody></table></div>" + (spellingOnly(q.groups.map((g) => g.key)) ? SPELLING_NOTE : "");
-    return html;
-  }
 
   // ------------------------------------------------------------------ certificates
   function certFor(a, b) {
@@ -399,12 +127,12 @@
   function missingReason(a, b) {
     const ra = rec(a), rb = rec(b), scope = new Set(S.board.certificate_scope_rids);
     if (ra.cluster == null || rb.cluster == null)
-      return "One of the two entries is comparability-unknown: its split, metric surface or unit is not all observed. Such entries are flagged and never certified.";
+      return "One of the two result records has an unknown setup: its split, metric name or unit is not all recorded. Such records get no comparability determination.";
     if (!S.board.multi_cluster)
-      return "This board has a single protocol cluster. Leaderboard-pair certificates cover only boards with two or more clusters.";
+      return "This leaderboard has a single setup group. Comparability determinations cover only leaderboards with two or more groups.";
     if (!scope.has(a) || !scope.has(b))
-      return "At least one entry is outside the certificate scope: certificates cover the top 10 entries of each multi-protocol board.";
-    return "No certificate is stored for this pair.";
+      return "At least one record is outside the released set: comparability determinations cover the top 10 records of each leaderboard with two or more groups.";
+    return "No comparability determination is stored for this pair.";
   }
 
   function certSlots() {
@@ -413,17 +141,17 @@
     const runnerUp = (rids, w) => { const r = ranked(rids).find((x) => x.rid !== w); return r ? r.rid : null; };
     if (t === "Q_official" && A.Q_official.status === "robust") {
       const o = A.Q_official, w = o.winner_rid;
-      if (rec(w).method !== rec(naive).method) slots.push({ title: "Qualified answer vs naive leader", a: w, b: naive });
+      if (rec(w).method !== rec(naive).method) slots.push({ title: "Fair answer vs the leaderboard\u2019s top number", a: w, b: naive });
       const ru = runnerUp(o.sets[0].rids, w);
-      if (ru != null) slots.push({ title: "Qualified answer vs its runner-up", a: w, b: ru });
+      if (ru != null) slots.push({ title: "Fair answer vs the next record", a: w, b: ru });
     } else if (t === "Q_official" && A.Q_official.status === "conditional") {
       const s = A.Q_official.sets;
       for (let i = 1; i < s.length; i++) slots.push({ title: "Set 1 winner vs set " + (i + 1) + " winner", a: s[0].winner_rid, b: s[i].winner_rid });
     } else if (t === "Q_threshold" && A.Q_threshold.champion_rid != null) {
       const q = A.Q_threshold;
-      slots.push({ title: "Champion vs bar τ", a: q.champion_rid, b: q.tau_rid });
-      q.groups.forEach((g, i) => { if (g.champion_rid !== q.champion_rid) slots.push({ title: "Champion vs its group " + (i + 1) + " result", a: q.champion_rid, b: g.champion_rid }); });
-      if (rec(q.champion_rid).method !== rec(naive).method) slots.push({ title: "Champion vs naive leader", a: q.champion_rid, b: naive });
+      slots.push({ title: "Test-set leader vs the bar", a: q.champion_rid, b: q.tau_rid });
+      q.groups.forEach((g, i) => { if (g.champion_rid !== q.champion_rid) slots.push({ title: "Test-set leader vs its record in group " + (i + 1), a: q.champion_rid, b: g.champion_rid }); });
+      if (rec(q.champion_rid).method !== rec(naive).method) slots.push({ title: "Test-set leader vs the leaderboard\u2019s top number", a: q.champion_rid, b: naive });
     } else if (t === "Q_trend" && A.Q_trend.status !== "insufficient") {
       const ys = A.Q_trend.years, last = ys[ys.length - 1];
       ys.filter((y) => !y.agree).forEach((y) => y.sets.slice(1).forEach((s, i) =>
@@ -445,12 +173,12 @@
     if (!slots.length) {
       $("certIntro").textContent = "";
       $("certSlots").innerHTML = "";
-      $("certBody").innerHTML = "<div class='missing-cert'><b>No qualified answer, so no certificate is attached.</b> " +
-        "Select any two records in the board view below to inspect the certificate for that pair.</div>";
+      $("certBody").innerHTML = "<div class='missing-cert'><b>No fair answer, so no comparability determination is attached.</b> " +
+        "Pick any two records in \u201cAll records\u201d to see the comparability determination for that pair.</div>";
       return;
     }
     if (S.slot >= slots.length) S.slot = 0;
-    $("certIntro").textContent = "A certificate is a machine-readable record of one comparability decision between two reported results. It lists every facet inspected, how the two sides relate on it, and the status that follows.";
+    $("certIntro").textContent = "A comparability determination records one decision about two result records. It marks the split, metric name and unit of the pair as equal, different or missing, and gives the status that follows.";
     $("certSlots").innerHTML = slots.map((s, i) => "<button class='chip" + (i === S.slot ? " active" : "") + "' data-i='" + i + "'>" + esc(s.title) + "</button>").join("");
     $("certSlots").onclick = (e) => { const b = e.target.closest(".chip"); if (!b) return; S.slot = +b.dataset.i; renderCertificates(); };
     const s = slots[S.slot];
@@ -477,26 +205,26 @@
     return "<div class='cert-grid'>" + side("Left record", L, hit.l) + side("Right record", R, hit.r) + "</div>" +
       "<div class='verdict'><span>Status</span><span class='v " + esc(c.status) + "'>" + esc(c.status) + "</span>" +
       "<span>Typed outcome</span><span class='mono'>" + esc(c.typed_outcome) + "</span></div>" +
-      "<div class='tbl-scroll'><table><thead><tr><th>Facet</th><th>Left</th><th>Right</th><th>Relation</th><th>Source</th></tr></thead><tbody>" +
-      c.per_facet.map((f) => "<tr><td class='mono'>" + esc(f.facet) + "</td><td>" + (f.left == null ? "<span class='rel-miss'>not observed</span>" : esc(f.left)) +
+      "<div class='tbl-scroll'><table><thead><tr><th>Field</th><th>Left</th><th>Right</th><th>Relation</th><th>Source</th></tr></thead><tbody>" +
+      c.per_facet.map((f) => "<tr><td>" + esc(FACET_PLAIN[f.facet] || f.facet) + "</td><td>" + (f.left == null ? "<span class='rel-miss'>not observed</span>" : esc(f.left)) +
         "</td><td>" + (f.right == null ? "<span class='rel-miss'>not observed</span>" : esc(f.right)) + "</td><td class='" + relCls(f.relation) + "'>" + esc(f.relation) +
         "</td><td>" + esc(f.source) + "</td></tr>").join("") + "</tbody></table></div>" +
       "<dl class='kv'>" +
-      "<dt>certificate_id</dt><dd class='mono'>" + esc(c.certificate_id) + (shared ? "<div class='note warn'>This identifier is shared by " + shared + " certificates in the release (two methods from one paper with the same value). The demo keys certificates by board and both records instead. Listed in KNOWN_ISSUES.md.</div>" : "") + "</dd>" +
-      "<dt>query.template</dt><dd><span class='mono'>" + esc(c.query.template) + "</span> (must agree: " + esc(c.query.must_agree_facets.join(", ")) + ")" +
-      "<div class='note'>“unconditional” means this certificate compares the pair on all three observed facets, whatever question you asked.</div></dd>" +
-      "<dt>cell</dt><dd>" + esc(c.cell.dataset) + " · " + esc(c.cell.metric) + " · " + esc(c.cell.metric_direction) + "</dd>" +
-      "<dt>compatible_dimensions</dt><dd>" + (esc(c.compatible_dimensions.join(", ")) || "none") + "</dd>" +
-      "<dt>incompatible_dimensions</dt><dd>" + (esc(c.incompatible_dimensions.join(", ")) || "none") + "</dd>" +
-      "<dt>missing_dimensions</dt><dd>" + (esc(c.missing_dimensions.join(", ")) || "none") + "</dd>" +
-      "<dt>normalizations_applied</dt><dd>" + (c.normalizations_applied.length ? esc(JSON.stringify(c.normalizations_applied)) : "none") + "</dd>" +
-      "<dt>typed_outcome_rule</dt><dd>" + esc(c.typed_outcome_rule || "") + "</dd>" +
-      "<dt>typed_outcome_requires</dt><dd>" + esc(c.typed_outcome_requires || "") + "</dd>" +
+      "<dt>identifier</dt><dd class='mono'>" + esc(c.certificate_id) + (shared ? "<div class='note warn'>This identifier is shared by " + shared + " comparability determinations in the release (two methods from one paper with the same value). The demo keys them by board and both records instead. Listed in KNOWN_ISSUES.md.</div>" : "") + "</dd>" +
+      "<dt>query.template</dt><dd><span class='mono'>" + esc(c.query.template) + "</span> (must agree: " + esc(c.query.must_agree_facets.map((f) => FACET_PLAIN[f] || f).join(", ")) + ")" +
+      "<div class='note'>“unconditional” means this comparability determination compares the pair on split, metric name and unit, whatever question you asked.</div></dd>" +
+      "<dt>leaderboard</dt><dd>" + esc(c.cell.dataset) + " · " + esc(c.cell.metric) + " · " + esc(c.cell.metric_direction) + "</dd>" +
+      "<dt>compatible_dimensions</dt><dd>" + (esc(c.compatible_dimensions.map((f) => FACET_PLAIN[f] || f).join(", ")) || "none") + "</dd>" +
+      "<dt>incompatible_dimensions</dt><dd>" + (esc(c.incompatible_dimensions.map((f) => FACET_PLAIN[f] || f).join(", ")) || "none") + "</dd>" +
+      "<dt>missing_dimensions</dt><dd>" + (esc(c.missing_dimensions.map((f) => FACET_PLAIN[f] || f).join(", ")) || "none") + "</dd>" +
+      "<dt>normalizations_applied</dt><dd>" + (c.normalizations_applied.length ? esc(plainTerms(JSON.stringify(c.normalizations_applied))) : "none") + "</dd>" +
+      "<dt>typed_outcome_rule</dt><dd>" + esc(plainTerms(c.typed_outcome_rule)) + "</dd>" +
+      "<dt>typed_outcome_requires</dt><dd>" + esc(plainTerms(c.typed_outcome_requires)) + "</dd>" +
       "<dt>implied_status / self_consistent</dt><dd>" + esc(c.implied_status) + " / " + esc(c.self_consistent) + "</dd>" +
-      "<dt>judge_cause</dt><dd>" + (c.judge_cause == null ? "none (deterministic facet decision)" : esc(c.judge_cause)) + "</dd>" +
+      "<dt>judge_cause</dt><dd>" + (c.judge_cause == null ? "none (decided by fixed rules)" : esc(c.judge_cause)) + "</dd>" +
       "<dt>noise band</dt><dd>" + noise + "</dd>" +
       "<dt>provenance_only</dt><dd>" + esc(c.provenance_only) + "; evidence_text_redistributed: " + esc(c.evidence_text_redistributed) + "</dd>" +
-      "</dl><details><summary>Raw certificate JSON</summary><pre class='json'>" + esc(JSON.stringify(c, null, 2)) + "</pre></details>";
+      "</dl><details><summary>Raw JSON (field names as released)</summary><pre class='json'>" + esc(JSON.stringify(c, null, 2)) + "</pre></details>";
   }
 
   function missingHTML(a, b) {
@@ -504,13 +232,13 @@
     const facets = ["split", "metric_surface", "unit"].map((f) => {
       const x = ra.proto[f], y = rb.proto[f];
       const rel = x == null || y == null ? "missing" : x === y ? "observed-same" : "observed-different";
-      return "<tr><td class='mono'>" + f + "</td><td>" + (x == null ? "<span class='rel-miss'>not observed</span>" : esc(x)) + "</td><td>" +
+      return "<tr><td>" + FACET_PLAIN[f] + "</td><td>" + (x == null ? "<span class='rel-miss'>not observed</span>" : esc(x)) + "</td><td>" +
         (y == null ? "<span class='rel-miss'>not observed</span>" : esc(y)) + "</td><td class='" + relCls(rel) + "'>" + rel + "</td></tr>";
     }).join("");
-    return "<div class='missing-cert'><p><b>No certificate covers this pair.</b> " + esc(missingReason(a, b)) + "</p>" +
+    return "<div class='missing-cert'><p><b>No comparability determination covers this pair.</b> " + esc(missingReason(a, b)) + "</p>" +
       "<div class='cert-grid'><div class='cert-rec'><h4>Left record</h4>" + recordBlock(ra) + "</div><div class='cert-rec'><h4>Right record</h4>" + recordBlock(rb) + "</div></div>" +
-      "<p class='small muted'>Facets from the leaderboard record, not a certificate:</p>" +
-      "<div class='tbl-scroll'><table><thead><tr><th>Facet</th><th>Left</th><th>Right</th><th>Relation</th></tr></thead><tbody>" + facets + "</tbody></table></div></div>";
+      "<p class='small muted'>Fields from the two result records. No comparability determination is stored:</p>" +
+      "<div class='tbl-scroll'><table><thead><tr><th>Field</th><th>Left</th><th>Right</th><th>Relation</th></tr></thead><tbody>" + facets + "</tbody></table></div></div>";
   }
 
   // ------------------------------------------------------------------ board view
@@ -523,8 +251,605 @@
     return sel;
   }
 
+  // ------------------------------------------------------------------ small display helpers
+  const SPLIT_WORD = { val: "validation set", test: "test set", train: "training set" };
+  const splitWord = (p) => (!p || p.split == null ? "split not recorded" : SPLIT_WORD[p.split] || p.split + " split");
+  const splitCls = (p) => (!p || p.split == null ? "n" : p.split === "test" ? "g" : "w");
+  const auditOf = (r) => (S.audit ? S.audit.get(S.board.id + "#" + r.rid) : null);
+  const setupLine = (p) => [splitWord(p), p && p.metric_surface, p && p.unit].filter(Boolean).map(esc).join(" · ");
+  function namesLine(rids, n) {
+    const rs = ranked(rids), shown = rs.slice(0, n).map((r) => esc(r.method) + " " + val(r.value)).join(", ");
+    return shown + (rs.length > n ? " …" : "");
+  }
+  function recordBlock(r) {
+    return "<div class='method'>" + esc(r.method) + " <b>" + val(r.value) + "</b></div><div class='small'>" + protoChips(r.proto) + "</div>" +
+      "<div class='small'>" + paperLink(r) + ", " + pointer(r.source_location) + "</div>" +
+      "<div class='small'>" + (auditBadge(r) ? auditBadge(r) + " · " : "") + reportLink(r) + "</div>";
+  }
+  function auditPill(r, positive) {
+    const a = auditOf(r);
+    if (!a) return "";
+    if (a.verdict === "wrong_split") return "<span class='pill w' title='" + esc(a.notes) + "'>⚠ hand check: source says " + esc(SPLIT_WORD[a.split_per_source] || a.split_per_source) + "</span>";
+    if (a.verdict === "wrong_value") return "<span class='pill w' title='" + esc(a.notes) + "'>⚠ hand check: wrong benchmark or column</span>";
+    if (a.verdict === "unsure") return "<span class='pill q' title='" + esc(a.notes) + "'>? hand check: source unclear</span>";
+    return positive ? "<span class='pill g' title='" + esc(a.notes) + "'>✓ checked by hand</span>" : "";
+  }
+  const pillRow = (r, positive) => "<div class='pills'><span class='pill " + splitCls(r.proto) + "'>" + esc(splitWord(r.proto)) + "</span>" + auditPill(r, positive) + "</div>";
+  const scrollTable = (head, rows) => "<div class='tbl-scroll tall'><table><thead><tr>" + head + "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+
+  // ------------------------------------------------------------------ routing
+  async function init() {
+    const [meta, templates, index, examples] = await Promise.all([
+      getJSON("data/meta.json"), getJSON("data/templates.json"), getJSON("data/index.json"), getJSON("data/examples.json"),
+    ]);
+    Object.assign(S, { meta, templates, index, examples });
+    S.audit = new Map();
+    S.auditBoards = new Map();
+    try {
+      const au = await getJSON("data/audit/hand_audit.json");
+      au.records.forEach((r) => {
+        S.audit.set(r.board + "#" + r.rid, r);
+        const level = r.verdict === "wrong_split" || r.verdict === "wrong_value" ? 2 : r.verdict === "unsure" ? 1 : 0;
+        S.auditBoards.set(r.board, Math.max(S.auditBoards.get(r.board) || 0, level));
+      });
+    } catch (e) { /* the audit file is optional; badges simply do not show */ }
+    S.byId = new Map(index.map((r) => [r.id, r]));
+    renderStatic();
+    window.addEventListener("hashchange", route);
+    let wasNarrow = window.matchMedia("(max-width: 760px)").matches;
+    window.addEventListener("resize", () => {
+      const n = window.matchMedia("(max-width: 760px)").matches;
+      if (n !== wasNarrow) { wasNarrow = n; if (S.board && !$("boardView").hidden) renderPipeline(); }
+    });
+    await route();
+  }
+
+  async function route() {
+    if (location.hash === "#browse") { showBrowse(); return; }
+    const h = new URLSearchParams(location.hash.slice(1));
+    let id = h.get("b"), t = h.get("q");
+    if (!id) { id = S.examples[0].board; t = S.examples[0].template; }
+    if (!TEMPLATES.includes(t)) t = "Q_official";   // Q_any is always the left card
+    const row = S.byId.get(id);
+    if (!row) { $("boardView").hidden = true; $("browseView").hidden = false; $("browseView").innerHTML = "<p>Leaderboard not found: " + esc(id) + "</p>"; return; }
+    if (!S.shards[row.shard]) S.shards[row.shard] = await getJSON("data/boards/" + row.shard + ".json");
+    S.board = S.shards[row.shard][id];
+    S.tmpl = t; S.picks = []; S.slot = 0; S.open = {}; S.stage = -1;
+    const ex = S.examples.find((e) => e.board === id && e.template === t);
+    S.exampleN = ex ? ex.n : null;
+    $("browseView").hidden = true; $("boardView").hidden = false;
+    renderBoardPage();
+    window.scrollTo(0, 0);
+  }
+  const go = (id, t) => { location.hash = "#q=" + encodeURIComponent(t) + "&b=" + encodeURIComponent(id); };
+
+  // ------------------------------------------------------------------ static parts
+  function renderStatic() {
+    const st = S.meta.stats;
+    const chips = S.examples.filter((e) => e.chip !== false).map((e) =>
+      "<button class='chip' data-n='" + e.n + "' title='" + esc(e.label) + "'>" + esc(CHIP_PLAIN[e.board] || e.label) + "</button>").join("") +
+      "<a class='chip' id='browseChip' href='#browse'>Browse all " + fmt(st.boards) + " leaderboards</a>";
+    $("chips").innerHTML = chips;
+    $("chips").onclick = (e) => {
+      const btn = e.target.closest("button.chip"); if (!btn) return;
+      const ex = S.examples.find((x) => x.n === +btn.dataset.n); go(ex.board, ex.template);
+    };
+    $("flowToggle").onclick = () => {
+      S.flowPaused = !S.flowPaused; $("flowToggle").textContent = S.flowPaused ? "Play" : "Pause";
+      if (S.flowSync) S.flowSync();
+    };
+    $("modeSwitch").onclick = (e) => { const b = e.target.closest("button"); if (b && S.board) go(S.board.id, b.dataset.t); };
+
+    $("templateHelp").innerHTML = S.templates.templates.map((t) =>
+      "<div title='" + esc(t.name) + "'><b>" + esc(PLAIN_TEMPLATE[t.name]) + "</b><br>" + esc(QUESTION_TEXT[t.name] || "") + "<br><span class='muted small'>Must match: " +
+      (t.must_agree_facets.length ? esc(t.must_agree_facets.map((f) => FACET_PLAIN[f] || f).join(", ")) : "nothing") +
+      (t.restrictions.length && t.restrictions[0].op === "equals" ? "; test set only" : "") +
+      (t.restrictions.length && t.restrictions[0].op === "partition_by" ? "; grouped by preprint year" : "") + "</span></div>").join("");
+    $("auditText").innerHTML = "Split, metric and unit labels were extracted automatically from the papers. Using the same pointers shown here, one person checked 56 displayed records against their papers and found 14 errors: " +
+      "6 development values stored as test, 3 values read from a neighbouring column or row, and 5 records whose paper states a split that the record gives wrongly or leaves out. A further record was unclear. " +
+      "These 56 were drawn from boards with differing answers or too little evidence, so this is not an error rate for all the data. " +
+      "The worked examples show only records that passed. Elsewhere, read a fair comparison as the best <i>recorded</i> value for that question, and follow the pointer to confirm it.";
+    $("downloads").innerHTML = "Download: <a href='data/release/comparability_certificates.jsonl'>comparability determinations</a> (" + fmt(st.certificates) + "), " +
+      "<a href='data/release/comparability_certificate.schema.json'>schema</a>, <a href='data/release/query_templates.json'>question templates</a>, " +
+      "<a href='data/release/query_conditioned_by_leaderboard.jsonl'>saved answers</a>, <a href='data/release/SHA256SUMS'>checksums</a>, " +
+      "hand audit (<a href='data/audit/hand_audit.json'>JSON</a>, <a href='data/audit/hand_audit.csv'>CSV</a>).";
+    $("licence").innerHTML = "Data: <a href='https://creativecommons.org/licenses/by-sa/4.0/' target='_blank' rel='noopener'>CC BY-SA 4.0</a>. Evidence is given as pointers only (arXiv id, abstract URL, source location); no paper text is redistributed. " +
+      "All data are frozen and precomputed; this page makes no model or server calls.";
+    $("footStats").textContent = fmt(st.boards) + " leaderboards · " + fmt(st.entries) + " result records · " + fmt(st.certificates) + " comparability determinations";
+    $("footLinks").innerHTML = "Data: frozen Papers with Code archive (" + esc(S.meta.snapshot.replace(/.*frozen /, "")) + ") · DOI <a href='https://doi.org/" + esc(S.meta.doi_version) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_version.replace("10.5281/", "10.5281/")) + "</a> " +
+      "(all versions <a href='https://doi.org/" + esc(S.meta.doi_concept) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_concept.replace("10.5281/zenodo.", "…")) + "</a>) · " +
+      "<a href='" + esc(S.meta.repo_url) + "' target='_blank' rel='noopener'>dataset</a> · <a href='" + esc(S.meta.demo_repo_url) + "' target='_blank' rel='noopener'>demo source</a> · " +
+      "<a href='" + esc(S.meta.demo_repo_url) + "/issues/new?labels=label-error' target='_blank' rel='noopener'>Report a label error</a> · CC BY-SA 4.0";
+  }
+
+  // ------------------------------------------------------------------ board page
+  function renderBoardPage() {
+    const b = S.board, ex = S.examples.find((e) => e.n === S.exampleN);
+    let parent = ex;
+    if (ex && ex.chip === false) parent = S.examples.find((x) => x.board === ex.board && x.chip !== false);
+    [...$("chips").querySelectorAll("button.chip")].forEach((c) => c.classList.toggle("on", !!parent && +c.dataset.n === parent.n));
+    $("ask").innerHTML = askText();
+    const task = TASK_GLOSS[b.id];
+    $("gloss").textContent = (task ? task + " " : "") + (b.scored ? dirWord().replace(/^./, (c) => c.toUpperCase()) + "." : "");
+    $("modeSwitch").hidden = !b.scored;
+    $("modeSwitch").innerHTML = "<span class='small muted'>Ask:</span>" + TEMPLATES.map((t) =>
+      "<button class='" + (t === S.tmpl ? "on" : "") + "' data-t='" + t + "' title='" + t + "'>" + esc(PLAIN_TEMPLATE[t]) + "</button>").join("");
+    renderCards();
+    $("why").innerHTML = b.scored ? (ex && ex.why ? ex.why : whyText()) : "This leaderboard has no answer: the data do not record whether higher or lower is better on this metric, so there is no “best” to report.";
+    $("caveat").hidden = !(ex && ex.caveat);
+    if (ex && ex.caveat) $("caveat").innerHTML = "<b>Caveat:</b> " + esc(ex.caveat);
+    renderPipeline();
+    renderFlow();
+    ["certSection", "boardSection", "thresholdSection", "typedSection"].forEach((id) => { $(id).open = false; });
+    if (b.scored) { $("certSection").hidden = false; renderCertificates(); } else { $("certSection").hidden = true; }
+    renderBoard();
+    renderThreshold();
+    renderTyped();
+  }
+
+  // plain description of the worked examples; other boards show only the score direction
+  const TASK_GLOSS = {
+    "hash:fb3db959fa006931|metric:average-map": "A benchmark for finding actions in videos. Average mAP is an accuracy score.",
+    "pwc-dataset:mot17|hash:4dde914d469e1478": "A benchmark for tracking people across video frames.",
+    "pwc-dataset:gopro|metric:psnr": "A benchmark for removing motion blur from images.",
+    "pwc-dataset:csl-daily|metric:wer": "A benchmark for recognising Chinese Sign Language in videos.",
+    "hash:2b958adf44f0cb1f|metric:bleu": "A benchmark for translating English into French.",
+  };
+
+  const CHIP_PLAIN = {
+    "hash:fb3db959fa006931|metric:average-map": "Finding actions in videos",
+    "pwc-dataset:mot17|hash:4dde914d469e1478": "Tracking people in video",
+    "pwc-dataset:gopro|metric:psnr": "Removing image blur",
+    "pwc-dataset:csl-daily|metric:wer": "Sign language, by year",
+    "hash:2b958adf44f0cb1f|metric:bleu": "English to French (not enough evidence)",
+  };
+
+  function askText() {
+    const b = S.board, ds = esc(b.dataset), m = esc(b.metric);
+    if (S.tmpl === "Q_trend" && b.scored) return "How does the best " + m + " on " + ds + " change by preprint year?";
+    if (S.tmpl === "Q_threshold" && b.scored) return "On " + ds + " (" + m + "), does the test-set leader stay ahead?";
+    return "What is the best " + m + " on " + ds + "?";
+  }
+
+  function renderCards() {
+    const b = S.board;
+    if (!b.scored) {
+      $("cards").innerHTML = "<div class='card none'><div class='lab'>No answer</div><div class='numtext'>Metric direction unknown</div></div>";
+      return;
+    }
+    const A = b.answers, n = rec(A.Q_any.winner_rid);
+    const left = "<div class='card naive' title='Q_any'><div class='lab'>The leaderboard says</div><div class='num'>" + val(n.value) + "</div><div class='meth'>" + esc(n.method) + "</div>" + pillRow(n, false) + "</div>";
+    let lab, body;
+    if (S.tmpl === "Q_official") {
+      const o = A.Q_official; lab = "Fair comparison (test set only)";
+      if (o.status === "robust") {
+        const r = rec(o.winner_rid);
+        body = "<div class='num'>" + val(r.value) + "</div><div class='meth'>" + esc(r.method) + tieNote(tiedWith(o.sets[0].rids, r.rid)) + "</div>" + pillRow(r, true);
+      } else if (o.status === "conditional") {
+        body = "<div class='numtext'>It depends on the group</div><ul class='minilist'>" + o.sets.slice(0, 5).map((s) => {
+          const w = rec(s.winner_rid);
+          return "<li><b>" + val(w.value) + "</b> " + esc(w.method) + " <span class='muted small'>" + esc(s.key.metric_surface) + "</span></li>"; }).join("") + "</ul>" +
+          (spellingOnly(o.sets.map((x) => Object.assign({ split: "test" }, x.key))) ? SPELLING_NOTE : "");
+      } else body = "<div class='numtext'>Not enough evidence</div><p class='small muted'>No answer is given.</p>";
+    } else if (S.tmpl === "Q_trend") {
+      const tr = A.Q_trend; lab = "Fair comparison (by preprint year)";
+      if (tr.status === "insufficient") body = "<div class='numtext'>Not enough evidence</div><p class='small muted'>No answer is given.</p>";
+      else body = "<div class='tbl-scroll tall short'><table><tbody>" + tr.years.map((y) => y.sets.map((s, i) => {
+        const w = rec(s.winner_rid);
+        return "<tr><td>" + (i === 0 ? "<b>" + y.year + "</b>" : "") + "</td><td class='num'>" + val(w.value) + "</td><td>" + esc(w.method) + tieNote(tiedWith(s.rids, s.winner_rid)) + "</td><td><span class='pill tiny " + splitCls(w.proto) + "'>" + esc(splitWord(w.proto)) + "</span></td></tr>";
+      }).join("")).join("") + "</tbody></table></div>";
+    } else {
+      const q = A.Q_threshold; lab = "Does the lead hold?";
+      if (q.status === "insufficient" || q.champion_rid == null) body = "<div class='numtext'>Not enough evidence</div><p class='small muted'>" + esc(plainTerms(q.reason)) + "</p>";
+      else {
+        const c = rec(q.champion_rid), k = q.groups.filter((g) => g.clears).length;
+        body = "<div class='numtext'>Holds in " + k + " of " + q.groups.length + " groups</div><div class='meth'>" + esc(c.method) + " " + val(c.value) + "</div><p class='small muted' title='threshold τ'>The bar is " + val(q.tau) + ", the next test-set record.</p>" + pillRow(c, true);
+      }
+    }
+    $("cards").innerHTML = left + "<div class='card qual' title='" + S.tmpl + "'><div class='lab'>" + esc(lab) + "</div>" + body + "</div>";
+  }
+
+  function whyText() {
+    const A = S.board.answers, n = rec(A.Q_any.winner_rid);
+    if (S.tmpl === "Q_official") {
+      const o = A.Q_official, e = o.excluded;
+      if (o.status === "insufficient") return "<b>No two records can be fairly compared</b> on the test set: " + o.n_official_records + " carry a test-set label, " + e.split_not_reported + " have no split identified in the extracted record, and " + e.other_split + " are on another split.";
+      if (o.status === "conditional") return "<b>The test-set groups disagree</b>: each has its own winner, so there is no single fair answer.";
+      const q = rec(o.winner_rid);
+      if (q.rid === n.rid) return "The top number is also the best comparable test-set record.";
+      if (q.method === n.method) return "Both answers name " + esc(q.method) + ", but from different records.";
+      if (n.proto.split == null || n.proto.metric_surface == null) return "The top number has <b>no recorded setup</b>, so it cannot be compared with test-set records.";
+      if (n.proto.split !== "test") return "The top number was measured on the <b>" + esc(splitWord(n.proto)) + "</b>, so it does not compete with test-set records.";
+      return "The top number is on the test set, but under <b>a different metric name</b>, so it sits in its own group.";
+    }
+    if (S.tmpl === "Q_trend") {
+      const tr = A.Q_trend;
+      if (tr.status === "insufficient") return "<b>No preprint year</b> has two records with the same recorded setup.";
+      if (tr.status === "conditional") return "<b>In some years the groups disagree</b>, so the winner depends on the setup. This groups records by preprint year; it is not a historical record of progress.";
+      return "Each preprint year has one winner across its groups. This groups records by preprint year; it is not a historical record of progress.";
+    }
+    const q = A.Q_threshold;
+    if (q.status === "insufficient") return "<b>The lead cannot be tested</b>: the test-set leader meets a rival under only one setup, or there is no test-set group.";
+    if (q.status === "conditional") return "The test-set leader stays ahead of the bar in some groups <b>but not all</b>.";
+    return "The test-set leader stays ahead of the bar in <b>every group</b> where it meets a rival.";
+  }
+
+  // ------------------------------------------------------------------ pipeline ("How this answer was made")
+  function pipelineModel() {
+    const b = S.board, n = b.records.length, tagged = b.records.filter((r) => r.cluster != null).length, g = b.clusters.length, u = b.unknown_rids.length;
+    const m = {
+      stages: [
+        { t: "Extract", d: "Collect result records from papers" },
+        { t: "Tag setup", d: "Note each record's split, metric name and unit" },
+        { t: "Group", d: "Put records with the same setup together" },
+        { t: "Apply question", d: "" },
+        { t: "Pick", d: "", fin: true, out: "" },
+      ],
+      arrows: [n + " result records", tagged === n ? n + " tagged" : tagged + " of " + n + " tagged", g + (g === 1 ? " group" : " groups") + (u ? " + " + u + " unknown" : ""), ""],
+    };
+    const [, , , s4, s5] = m.stages;
+    if (!b.scored) {
+      s4.d = "No question applied: higher or lower is not recorded"; m.arrows[3] = "0 kept"; s5.d = "Nothing to pick"; s5.out = "no answer"; return m;
+    }
+    const A = b.answers;
+    if (S.tmpl === "Q_official") {
+      const o = A.Q_official, kept = o.sets.reduce((a, s) => a + s.rids.length, 0);
+      s4.d = o.sets.length === 0 ? "“Test set only” keeps no group" : "“Test set only” keeps " + (o.sets.length === 1 ? "one group" : o.sets.length + " groups");
+      m.arrows[3] = kept + " kept";
+      if (o.status === "robust") { const r = rec(o.winner_rid); s5.d = "Take the best kept record"; s5.out = r.method + " " + val(r.value); }
+      else if (o.status === "conditional") { s5.d = "Each kept group has its own winner"; s5.out = "no single winner"; }
+      else { s5.d = "Nothing to compare"; s5.out = "not enough evidence"; }
+    } else if (S.tmpl === "Q_trend") {
+      const tr = A.Q_trend, y = tr.years.length;
+      s4.d = "“By year” splits each group by preprint year"; m.arrows[3] = y + (y === 1 ? " year" : " years");
+      if (y) { s5.d = "Best per year within each group"; s5.out = tr.years.reduce((a, x) => a + x.sets.length, 0) + " yearly winners"; }
+      else { s5.d = "Nothing to compare"; s5.out = "not enough evidence"; }
+    } else {
+      const q = A.Q_threshold, k = q.groups.filter((x) => x.clears).length;
+      s4.d = "Fix the test-set leader and the bar, then test each group"; m.arrows[3] = q.groups.length + (q.groups.length === 1 ? " group tested" : " groups tested");
+      s5.d = "Does the leader beat the bar in every group?";
+      s5.out = q.status === "insufficient" ? "not enough evidence" : "holds in " + k + " of " + q.groups.length;
+    }
+    return m;
+  }
+
+  function renderPipeline() {
+    const m = pipelineModel(), peek = $("peek");
+    $("pipeWrap").appendChild(peek);   // the panel sits inside #pipe on phones; lift it out before redrawing
+    let html = "";
+    m.stages.forEach((s, i) => {
+      html += "<button type='button' class='stg" + (s.fin ? " fin" : "") + (i === S.stage ? " on" : "") + "' data-s='" + i + "' aria-expanded='" + (i === S.stage) + "'>" +
+        (s.io ? "<span class='io'>" + esc(s.io) + "</span>" : "") + "<span class='stg-t'>" + (i + 1) + " · " + esc(s.t) + "</span><span class='stg-d'>" + esc(s.d) + "</span>" +
+        (s.out ? "<span class='io out'>" + esc(s.out) + "</span>" : "") + "</button>";
+      if (i < 4) html += "<div class='arr'><span>" + esc(m.arrows[i]) + "</span> <span class='arrow-mark'></span></div>";
+    });
+    $("pipe").innerHTML = html;
+    const pick = (el) => {
+      const i = +el.dataset.s;
+      S.stage = i === S.stage ? -1 : i; renderPipeline();
+      [...$("flow").querySelectorAll(".fl-band")].forEach((b) => b.classList.toggle("on", +b.dataset.s === S.stage));
+    };
+    [...$("pipe").querySelectorAll(".stg")].forEach((el) => {
+      el.onclick = () => pick(el);
+    });
+    peek.hidden = S.stage < 0;
+    if (S.stage < 0) { peek.innerHTML = ""; return; }
+    peek.innerHTML = stagePanel(S.stage, m);
+    peek.onclick = (e) => { const b = e.target.closest("[data-opencert]"); if (b) { $("certSection").open = true; $("certSection").scrollIntoView({ behavior: "smooth", block: "start" }); } };
+    // On phones the stages stack, so the panel sits right under the chosen stage.
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      $("pipe").querySelector(".stg.on").after(peek);
+    }
+  }
+
+  function leftOut() {
+    // why each record is outside what the question keeps; counts stored records only
+    const b = S.board, A = b.answers, kept = new Set(), why = new Map();
+    if (S.tmpl === "Q_official") {
+      A.Q_official.sets.forEach((s) => s.rids.forEach((i) => kept.add(i)));
+      b.records.forEach((r) => { if (kept.has(r.rid)) return;
+        why.set(r.rid, r.proto.split == null ? "no split identified in the extracted record" : r.proto.split !== "test" ? "on the " + splitWord(r.proto) : "test set, but no other record shares its metric name and unit"); });
+    } else if (S.tmpl === "Q_trend") {
+      A.Q_trend.years.forEach((y) => y.sets.forEach((s) => s.rids.forEach((i) => kept.add(i))));
+      b.records.forEach((r) => { if (!kept.has(r.rid)) why.set(r.rid, r.cluster == null ? "unknown setup" : "no other record with the same setup and preprint year"); });
+    } else {
+      A.Q_threshold.groups.forEach((g) => g.rids.forEach((i) => kept.add(i)));
+      b.records.forEach((r) => { if (!kept.has(r.rid)) why.set(r.rid, r.cluster == null ? "unknown setup" : "in a group where the test-set leader has no rival"); });
+    }
+    return { kept, why };
+  }
+
+  function stagePanel(i, m) {
+    const b = S.board, n = b.records.length;
+    const head = (io) => "<div class='peek-h'><b>Stage " + (i + 1) + " · " + esc(m.stages[i].t) + "</b> <span class='muted'>" + io + "</span></div>";
+    if (i === 0) return head("input: source papers → output: " + n + " result records") +
+      scrollTable("<th>Method</th><th class='num'>Value</th><th>Source</th>", ranked(b.records.map((r) => r.rid)).map((r) =>
+        "<tr><td>" + esc(r.method) + "</td><td class='num'>" + val(r.value) + "</td><td>" + paperLink(r) + ", " + pointer(r.source_location) + (auditBadge(r) ? "<div class='small'>" + auditBadge(r) + "</div>" : "") + "<div class='small'>" + reportLink(r) + "</div></td></tr>").join(""));
+    if (i === 1) return head("input: " + n + " records → output: split, metric name and unit, where recorded") +
+      scrollTable("<th>Method</th><th class='num'>Value</th><th title='split'>Split</th><th title='metric name as written'>Metric name</th><th>Unit</th>", ranked(b.records.map((r) => r.rid)).map((r) => {
+        const c = (v) => (v == null ? "<span class='rel-miss'>not recorded</span>" : esc(v));
+        return "<tr><td>" + esc(r.method) + "</td><td class='num'>" + val(r.value) + "</td><td>" + c(r.proto.split) + "</td><td>" + c(r.proto.metric_surface) + "</td><td>" + c(r.proto.unit) + "</td></tr>"; }).join(""));
+    if (i === 2) {
+      const g = b.clusters.map((c) => "<div class='g " + (c.protocol.split === "test" ? "g1" : "g2") + "'><span>" + setupLine(c.protocol) + "</span><b>" + c.rids.length + (c.rids.length === 1 ? " record" : " records") + "</b> " + namesLine(c.rids, 3) + "</div>").join("");
+      const u = b.unknown_rids.length ? "<div class='g g3'><span>unknown setup</span><b>" + b.unknown_rids.length + (b.unknown_rids.length === 1 ? " record" : " records") + "</b> " + namesLine(b.unknown_rids, 3) + "</div>" : "";
+      return head("input: " + n + " records → output: groups") + "<div class='grp'>" + g + u + "</div>";
+    }
+    if (!b.scored) return head("") + "<p>" + (i === 3 ? "No question was applied, because the data do not record whether higher or lower is better on this metric." : "There is nothing to pick.") + "</p>";
+    const A = b.answers;
+    if (i === 3) {
+      const { kept, why } = leftOut();
+      let keptHtml;
+      if (S.tmpl === "Q_official") keptHtml = A.Q_official.sets.length ? A.Q_official.sets.map((s) => "<li><b>" + setupLine(Object.assign({ split: "test" }, s.key)) + "</b>: " + s.rids.length + " records</li>").join("") : "<li>No group holds two records, so <b>0 are kept</b>.</li>";
+      else if (S.tmpl === "Q_trend") keptHtml = A.Q_trend.years.length ? A.Q_trend.years.map((y) => "<li><b>" + y.year + "</b>: " + y.sets.map((s) => setupLine(s.key) + " (" + s.rids.length + ")").join("; ") + "</li>").join("") : "<li>No year: <b>0 kept</b>. " + esc(plainTerms(A.Q_trend.reason)) + "</li>";
+      else keptHtml = A.Q_threshold.groups.length ? A.Q_threshold.groups.map((g) => "<li><b>" + setupLine(g.key) + "</b>: " + g.rids.length + " records</li>").join("") : "<li>No group tested. " + esc(plainTerms(A.Q_threshold.reason)) + "</li>";
+      const rows = ranked([...why.keys()]).map((r) => "<tr><td>" + esc(r.method) + "</td><td class='num'>" + val(r.value) + "</td><td>" + esc(why.get(r.rid)) + "</td></tr>").join("");
+      return head("input: " + n + " records → output: " + kept.size + " kept") + "<p class='peek-sub'>Kept</p><ul class='minilist'>" + keptHtml + "</ul>" +
+        (rows ? "<p class='peek-sub'>Left out (" + why.size + ")</p>" + scrollTable("<th>Method</th><th class='num'>Value</th><th>Why</th>", rows) : "");
+    }
+    // stage 5
+    let body;
+    if (S.tmpl === "Q_official") {
+      const o = A.Q_official;
+      if (o.status === "robust") { const r = rec(o.winner_rid); body = "<p>Best kept record: <b>" + esc(r.method) + " " + val(r.value) + "</b> (" + setupLine(r.proto) + ").</p>"; }
+      else if (o.status === "conditional") body = "<ul class='minilist'>" + o.sets.map((s) => { const w = rec(s.winner_rid); return "<li>" + setupLine(s.key.split ? s.key : Object.assign({ split: "test" }, s.key)) + ": <b>" + esc(w.method) + " " + val(w.value) + "</b></li>"; }).join("") + "</ul>";
+      else body = "<p><b>Not enough evidence.</b> No group holds two comparable records, so nothing is picked.</p>";
+    } else if (S.tmpl === "Q_trend") {
+      const tr = A.Q_trend;
+      body = tr.years.length ? "<ul class='minilist'>" + tr.years.map((y) => "<li><b>" + y.year + "</b>: " + y.sets.map((s) => { const w = rec(s.winner_rid); return esc(w.method) + " " + val(w.value) + " (" + esc(splitWord(w.proto)) + ")"; }).join("; ") + (y.agree ? "" : " <span class='muted small'>groups disagree</span>") + "</li>").join("") + "</ul>" : "<p><b>Not enough evidence.</b> " + esc(plainTerms(tr.reason)) + "</p>";
+    } else {
+      const q = A.Q_threshold;
+      body = q.status === "insufficient" || q.champion_rid == null ? "<p><b>Not enough evidence.</b> " + esc(plainTerms(q.reason)) + "</p>" :
+        "<p>Leader: <b>" + esc(rec(q.champion_rid).method) + " " + val(rec(q.champion_rid).value) + "</b>; bar: " + val(q.tau) + " (" + esc(rec(q.tau_rid).method) + ").</p><ul class='minilist'>" +
+        q.groups.map((g) => "<li>" + setupLine(g.key) + ": " + val(rec(g.champion_rid).value) + " → " + (g.clears ? "<span class='rel-same'>beats the bar</span>" : "<span class='rel-diff'>does not beat the bar</span>") + "</li>").join("") + "</ul>";
+    }
+    const slot = certSlots()[0], hit = slot ? certFor(slot.a, slot.b) : null;
+    const cert = hit ? "<p class='small'>Comparability determination (" + esc(slot.title) + "): status <b>" + esc(hit.c.status) + "</b>, outcome <span class='mono'>" + esc(hit.c.typed_outcome) + "</span>" + (hit.c.incompatible_dimensions.length ? ", differs on " + esc(hit.c.incompatible_dimensions.join(", ")) : "") + ". <button class='linkish' data-opencert='1'>Open the comparability determination</button></p>"
+      : slot ? "<p class='small'>No comparability determination covers this pair. " + esc(missingReason(slot.a, slot.b)) + "</p>" : "<p class='small muted'>No answer, so no comparability determination is attached.</p>";
+    return head("input: kept records → output: the answer") + body + cert;
+  }
+
+  // ------------------------------------------------------------------ flow diagram
+  /* Each dot is one saved record. Dots leave their paper, pass the tag collar (where they take
+     their split colour), branch into setup groups, meet the question's gate, and the kept ones
+     reach the answer. Positions are layout only; every count is a count of stored records. */
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const FW = 940, FH = 250, MID = 132, GATE_X = 656;   // five 188-wide columns, one under each stage card
+  const NODE = { x0: 764, x1: 928, y0: 78, y1: 222 };
+  const svgEl = (tag, attrs, parent) => {
+    const e = document.createElementNS(SVGNS, tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v));
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const svgText = (parent, x, y, text, cls, anchor) => {
+    const t = svgEl("text", { x, y, class: "fl-txt " + (cls || ""), "text-anchor": anchor || "start" }, parent);
+    t.textContent = text;
+    return t;
+  };
+  const cubic = (a, b, t) => {   // horizontal-tangent S-curve between two points
+    const mx = (a[0] + b[0]) / 2, u = 1 - t;
+    const x = u * u * u * a[0] + 3 * u * u * t * mx + 3 * u * t * t * mx + t * t * t * b[0];
+    const y = u * u * u * a[1] + 3 * u * u * t * a[1] + 3 * u * t * t * b[1] + t * t * t * b[1];
+    return [x, y];
+  };
+  const flowClass = (p) => (!p || p.split == null ? "unk" : p.split === "test" ? "test" : "other");
+  const SHORT_SPLIT = { val: "validation", test: "test", train: "training" };
+
+  function heldReason(rids) {
+    const r = rec(rids[0]);
+    if (S.tmpl === "Q_official") return r.proto.split == null ? "split not recorded" : r.proto.split !== "test" ? "not test set" : "no matching peer";
+    return r.proto.split == null ? "unknown setup" : "no matching peer";
+  }
+
+  function flowModel() {
+    const b = S.board, kept = b.scored ? leftOut().kept : new Set(), n = b.records.length;
+    const winners = new Set();
+    const A = b.answers;
+    if (b.scored) {
+      if (S.tmpl === "Q_official") A.Q_official.sets.forEach((s) => winners.add(s.winner_rid));
+      else if (S.tmpl === "Q_trend") A.Q_trend.years.forEach((y) => y.sets.forEach((s) => winners.add(s.winner_rid)));
+      else if (A.Q_threshold.status !== "insufficient") A.Q_threshold.groups.forEach((g) => winners.add(g.champion_rid));
+    }
+    // lanes: groups that reach the answer first, then by size; at most 5, the rest share one lane
+    let lanes = b.clusters.map((c) => ({ rids: c.rids.slice(), cls: flowClass(c.protocol), label: setupLine(c.protocol), hit: c.rids.filter((i) => kept.has(i)).length }));
+    lanes.sort((x, y) => (y.hit > 0) - (x.hit > 0) || y.rids.length - x.rids.length);
+    if (lanes.length > 5) {
+      const rest = lanes.splice(4);
+      lanes.push({ rids: rest.flatMap((l) => l.rids), cls: "other", label: rest.length + " more groups", hit: rest.reduce((a, l) => a + l.hit, 0) });
+    }
+    if (b.unknown_rids.length) lanes.push({ rids: b.unknown_rids.slice(), cls: "unk", label: "unknown setup", hit: 0 });
+    const top = 44, room = FH - top - 12, gap = 6, minH = 30;
+    let hs = lanes.map((l) => Math.max(minH, (room - gap * (lanes.length - 1)) * l.rids.length / n));
+    const k = (room - gap * (lanes.length - 1)) / hs.reduce((a, h) => a + h, 0);
+    hs = hs.map((h) => h * Math.min(1, k));
+    const tube = Math.min(48, 16 + n * 1.2);
+    let y = top, cum = 0;
+    lanes.forEach((l, i) => {
+      l.h = hs[i]; l.y = y + hs[i] / 2; y += hs[i] + gap;
+      l.b0 = MID - tube / 2 + tube * cum / n; cum += l.rids.length; l.b1 = MID - tube / 2 + tube * cum / n;
+      l.bandY = (l.b0 + l.b1) / 2; l.bandH = l.b1 - l.b0;
+    });
+    const r = n <= 30 ? 4 : n <= 90 ? 3 : 2.2, dots = [];
+    const laneOf = (rid) => lanes.find((l) => l.rids.includes(rid));
+
+    // held dots pile up at the gate, best record nearest the gate
+    lanes.forEach((l) => {
+      const stopped = ranked(l.rids.filter((i) => !kept.has(i))).map((x) => x.rid);
+      const cols = Math.max(1, Math.ceil(Math.sqrt(stopped.length * 3.2))), rows = Math.ceil(stopped.length / cols);
+      const dx = Math.min(2 * r + 2, 90 / cols), dy = rows > 1 ? Math.min(2 * r + 2, (l.h - 14 - 2 * r) / (rows - 1)) : 0;
+      stopped.forEach((rid, i) => {
+        dots.push({ rid, lane: l, rest: [GATE_X - 8 - (i % cols) * dx, l.y + 6 + (Math.floor(i / cols) - (rows - 1) / 2) * dy], kept: false });
+      });
+      if (stopped.length) l.held = { n: stopped.length, why: heldReason(stopped) };
+    });
+
+    // the answer box is a small chart: y is the real value, best at the top
+    const plot = { marks: [], ticks: [] };
+    if (b.scored && kept.size) {
+      const naive = rec(A.Q_any.winner_rid), q = S.tmpl === "Q_threshold" ? A.Q_threshold : null;
+      const vals = [...kept].map((i) => rec(i).value).concat(kept.has(naive.rid) ? [] : [naive.value], q && q.tau != null ? [q.tau] : []);
+      const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+      const yOf = (v) => { const t = (v - lo) / span; return b.direction === "higher" ? NODE.y1 - t * (NODE.y1 - NODE.y0) : NODE.y0 + t * (NODE.y1 - NODE.y0); };
+      plot.ticks = [[hi, yOf(hi)], [lo, yOf(lo)]];
+      const add = (rid, x) => dots.push({ rid, lane: laneOf(rid), rest: [x, yOf(rec(rid).value)], kept: true, win: winners.has(rid) });
+      if (S.tmpl === "Q_trend") {
+        const ys = A.Q_trend.years, xOf = (yr) => NODE.x0 + 42 + (ys.length > 1 ? (ys.findIndex((v) => v.year === yr)) * (NODE.x1 - NODE.x0 - 56) / (ys.length - 1) : 60);
+        ys.forEach((yy) => { const seen = new Set(); yy.sets.forEach((s) => s.rids.forEach((rid) => { if (!seen.has(rid)) { seen.add(rid); add(rid, xOf(yy.year)); } })); });
+        plot.xlabels = ys.length > 1 ? [[xOf(ys[0].year), ys[0].year], [xOf(ys[ys.length - 1].year), ys[ys.length - 1].year]] : [[xOf(ys[0].year), ys[0].year]];
+      } else if (q) {
+        const xOf = (i) => NODE.x0 + 44 + (q.groups.length > 1 ? i * 90 / (q.groups.length - 1) : 40);
+        q.groups.forEach((g, i) => g.rids.forEach((rid, j) => add(rid, xOf(i) + (rid === g.champion_rid ? 0 : ((j % 5) - 2) * 4))));
+        plot.xlabels = q.groups.map((g, i) => [xOf(i), SHORT_SPLIT[g.key.split] || g.key.split]);
+        plot.bar = { y: yOf(q.tau), label: "bar " + val(q.tau) };
+      } else {
+        const rs = ranked([...kept]).map((x) => x.rid).filter((i) => !winners.has(i));
+        [...winners].forEach((rid) => { add(rid, NODE.x0 + 40); plot.marks.push({ rid, y: yOf(rec(rid).value), text: val(rec(rid).value), cls: "win" }); });
+        rs.forEach((rid, i) => add(rid, NODE.x0 + 58 + (i % 7) * 9));
+      }
+      if (!kept.has(naive.rid)) plot.naive = { x: NODE.x0 + 40, y: yOf(naive.value), text: "top " + val(naive.value) };
+    }
+
+    const papers = {};
+    b.records.forEach((x) => { const id = x.arxiv_id || "?"; papers[id] = (papers[id] || 0) + 1; });
+    const plist = Object.entries(papers).sort((p, q) => q[1] - p[1]);
+    const pStep = plist.length > 1 ? (FH - 60) / (plist.length - 1) : 0;
+    const pY = {}; plist.forEach(([id], i) => { pY[id] = plist.length > 1 ? 46 + i * pStep : MID; });
+    dots.forEach((d) => {
+      const rec0 = rec(d.rid);
+      d.src = [18, pY[rec0.arxiv_id || "?"]];
+      d.off = (((d.rid * 7) % 11) / 10 - 0.5);
+      d.cls = flowClass(rec0.proto); d.rec = rec0;
+      d.r = d.win ? r + 2.5 : r;
+    });
+    dots.sort((x, y) => (x.rid * 2654435761 % 997) - (y.rid * 2654435761 % 997));
+    return { lanes, dots, plist, pY, r, kept, n, tube, plot };
+  }
+
+  function dotAt(d, p, tube) {
+    const o = d.off * tube, l = d.off * Math.max(d.lane.h - 8, 0), b = d.lane.bandY + d.off * Math.max(d.lane.bandH - 4, 0);
+    if (p < 0.18) return cubic(d.src, [188, MID + o], p / 0.18);
+    if (p < 0.3) { const t = (p - 0.18) / 0.12; return [188 + t * 94, MID + o]; }
+    if (p < 0.42) { const t = (p - 0.3) / 0.12; return [282 + t * 94, MID + o + (b - MID - o) * t]; }
+    if (p < 0.6) return cubic([376, b], [470, d.lane.y + l], (p - 0.42) / 0.18);
+    if (p < 0.76) { const t = (p - 0.6) / 0.16; return [470 + t * 20, d.lane.y + l]; }
+    return cubic([490, d.lane.y + l], d.rest, (p - 0.76) / 0.24);
+  }
+
+  function renderFlow() {
+    cancelAnimationFrame(S.flowRaf);
+    const host = $("flow"), m = flowModel(), mp = pipelineModel(), tube = m.tube;
+    host.innerHTML = "";
+    const svg = svgEl("svg", { viewBox: "0 0 " + FW + " " + FH, role: "img", "aria-label": m.n + " result records flowing through five stages" }, host);
+    for (let i = 0; i < 5; i++) svgEl("rect", { x: i * FW / 5, y: 0, width: FW / 5, height: FH, class: "fl-band" + (i === S.stage ? " on" : ""), "data-s": i }, svg);
+    for (let i = 1; i < 5; i++) svgEl("line", { x1: i * FW / 5, x2: i * FW / 5, y1: 6, y2: FH - 4, class: "fl-sep" }, svg);
+    const g = svgEl("g", {}, svg);
+
+    // stage 1: bars show how many records each paper gave
+    const maxP = m.plist[0][1];
+    m.plist.forEach(([id, c]) => {
+      const y = m.pY[id], h = Math.min(9, Math.max(1.5, (FH - 60) / m.plist.length - 1));
+      if (m.plist.length <= 40) svgEl("path", { d: "M18 " + y + " C 103 " + y + ", 103 " + MID + ", 188 " + MID, class: "fl-feed" }, g);
+      svgEl("rect", { x: 4, y: y - h / 2, width: 8 + 46 * c / maxP, height: h, class: "fl-paper" }, g);
+    });
+
+    // stage 2: past the collar the pipe shows the split mix
+    svgEl("rect", { x: 188, y: MID - tube / 2, width: 94, height: tube, class: "fl-pipe" }, g);
+    m.lanes.forEach((l) => svgEl("rect", { x: 282, y: l.b0, width: 94, height: Math.max(0.5, l.bandH), class: "fl-pipe fl-" + l.cls }, g));
+    svgEl("rect", { x: 279, y: MID - tube / 2 - 5, width: 6, height: tube + 10, rx: 2, class: "fl-collar" }, g);
+
+    // stage 3 and 4: tapered flows, then a gate that says what it did
+    let keptCum = 0;
+    const keptTotal = m.lanes.reduce((a, l) => a + l.hit, 0) || 1, inH = Math.min(70, 16 + m.kept.size * 2.4), inTop = MID + 6 - inH / 2;
+    m.lanes.forEach((l) => {
+      const lt = l.y - (l.h - 2) / 2, lb = l.y + (l.h - 2) / 2;
+      svgEl("path", { d: "M376 " + l.b0 + " C 423 " + l.b0 + ", 423 " + lt + ", 470 " + lt + " H" + GATE_X + " V" + lb + " H470 C 423 " + lb + ", 423 " + l.b1 + ", 376 " + l.b1 + " Z", class: "fl-pipe fl-" + l.cls }, g);
+      if (l.hit) {
+        const f0 = inTop + inH * keptCum / keptTotal, f1 = f0 + inH * l.hit / keptTotal;
+        keptCum += l.hit;
+        svgEl("path", { d: "M" + GATE_X + " " + lt + " C 706 " + lt + ", 706 " + f0 + ", 756 " + f0 + " V" + f1 + " C 706 " + f1 + ", 706 " + lb + ", " + GATE_X + " " + lb + " Z", class: "fl-pipe fl-" + l.cls }, g);
+      }
+      const name = l.label.replace(" set ·", " ·");
+      svgText(g, 476, l.y - l.h / 2 + 12, (name.length > 30 ? name.slice(0, 29) + "…" : name) + " · " + l.rids.length, "fl-lane");
+      svgEl("rect", { x: GATE_X, y: l.y - (l.h - 2) / 2 - 2, width: 4, height: l.h + 2, class: "fl-gate" + (l.hit ? " open" : "") }, g);
+      if (l.hit) svgText(g, GATE_X + 9, l.y - 2, l.hit + " kept", "fl-gatetxt ok");
+      if (l.held) {
+        const yy = l.hit ? l.y + 10 : l.y + 3;
+        svgText(g, GATE_X + 9, yy - (l.hit ? 0 : 5), l.held.n + " held", "fl-gatetxt");
+        svgText(g, GATE_X + 9, yy + (l.hit ? 11 : 6), l.held.why, "fl-gatetxt why");
+      }
+    });
+
+    // stage 5: the answer box is a chart on the real value scale
+    svgEl("rect", { x: 756, y: 44, width: 180, height: 202, rx: 10, class: "fl-node" + (m.kept.size ? "" : " empty") }, g);
+    svgText(g, 846, 60, mp.stages[4].out, "fl-out", "middle");
+    const P = m.plot;
+    if (P.ticks.length) {
+      svgEl("line", { x1: NODE.x0 + 30, x2: NODE.x0 + 30, y1: NODE.y0 - 4, y2: NODE.y1 + 4, class: "fl-axis" }, g);
+      P.ticks.forEach(([v, y]) => svgText(g, NODE.x0 + 27, y + 3, val(v), "fl-tick", "end"));
+      (P.xlabels || []).forEach(([x, t]) => svgText(g, x, NODE.y1 + 14, t, "fl-tick", "middle"));
+      if (P.bar) {
+        svgEl("line", { x1: NODE.x0 + 30, x2: NODE.x1, y1: P.bar.y, y2: P.bar.y, class: "fl-bar" }, g);
+        svgText(g, NODE.x1 + 2, P.bar.y - 3, P.bar.label, "fl-tick", "end");
+      }
+      P.marks.forEach((k) => svgText(g, NODE.x1 + 2, k.y + 3, k.text, "fl-mark", "end"));
+      if (P.naive) {
+        svgEl("circle", { cx: P.naive.x, cy: P.naive.y, r: 5, class: "fl-top" }, g);
+        svgText(g, NODE.x1 + 2, P.naive.y + 3, P.naive.text, "fl-mark top", "end");
+      }
+    } else {
+      svgText(g, 846, 142, "nothing reached the answer", "fl-tick", "middle");
+    }
+    // each count is what its stage produced, centred under that stage's card
+    const nP = m.plist.length;
+    mp.arrows.forEach((a, i) => svgText(g, (i + 0.5) * FW / 5, 22, i === 0 ? a + " from " + nP + (nP === 1 ? " paper" : " papers") : a, "fl-count", "middle"));
+
+    // resting dots: the final picture, always visible, one per saved record
+    const layer = svgEl("g", {}, svg);
+    m.dots.forEach((d) => {
+      const [x, y] = d.rest;
+      const c = svgEl("circle", { r: d.r, cx: x, cy: y, class: "fl-dot " + d.cls + (d.kept ? "" : " held") + (d.win ? " win" : "") }, layer);
+      svgEl("title", {}, c).textContent = d.rec.method + " " + val(d.rec.value) + " · " + splitWord(d.rec.proto) + (d.rec.arxiv_id ? " · arXiv:" + d.rec.arxiv_id : "");
+    });
+    // moving copies: they stream through every stage in a loop, each ending at its record's resting place
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches || /[?&]still\b/.test(location.search);
+    $("flowToggle").hidden = reduced;
+    if (S.flowIO) S.flowIO.disconnect();
+    if (reduced) return;
+    const LOOP = 8000, MAXP = 120, step = Math.max(1, Math.ceil(m.dots.length / MAXP));
+    const movers = m.dots.filter((d, i) => i % step === 0).map((d, i, all) => {
+      const el = svgEl("circle", { r: Math.min(d.r, m.r), cx: 0, cy: 0, class: "fl-dot raw fl-mover" }, svg);
+      return { d, el, phase: i / all.length, cls: "raw" };
+    });
+    const tubeIn = tube - 8;
+    const frame = (now) => {
+      movers.forEach((v) => {
+        const p = ((now / LOOP) + v.phase) % 1, [x, y] = dotAt(v.d, p, tubeIn);
+        v.el.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ")");
+        v.el.setAttribute("opacity", p < 0.04 ? (p / 0.04).toFixed(2) : p > 0.94 ? ((1 - p) / 0.06).toFixed(2) : "1");
+        const cls = p < 0.3 ? "raw" : v.d.cls;
+        if (cls !== v.cls) { v.cls = cls; v.el.setAttribute("class", "fl-dot fl-mover " + cls); }
+      });
+      S.flowRaf = requestAnimationFrame(frame);
+    };
+    S.flowOn = false;
+    S.flowRun = (on) => {
+      cancelAnimationFrame(S.flowRaf);
+      S.flowOn = on;
+      if (on) S.flowRaf = requestAnimationFrame(frame);
+    };
+    const sync = () => S.flowRun(S.flowSeen && !S.flowPaused);
+    S.flowSync = sync;
+    $("flowToggle").textContent = S.flowPaused ? "Play" : "Pause";
+    if ("IntersectionObserver" in window) {
+      S.flowIO = new IntersectionObserver((es) => { S.flowSeen = es[0].isIntersecting; sync(); });
+      S.flowIO.observe(host);
+    } else { S.flowSeen = true; sync(); }
+  }
+
+  // ------------------------------------------------------------------ closed sections
   function renderBoard() {
     const b = S.board, sel = selectedClusters();
+    $("boardSummary").innerHTML = "All " + b.records.length + " records, grouped by setup";
     const naive = b.answers ? b.answers.Q_any.winner_rid : null;
     let qual = null;
     if (b.answers) {
@@ -532,39 +857,29 @@
       if (S.tmpl === "Q_threshold") qual = b.answers.Q_threshold.status !== "insufficient" ? b.answers.Q_threshold.champion_rid : null;
     }
     const row = (r, i) => "<tr class='pick" + (S.picks.includes(r.rid) ? " chosen" : "") + "' data-rid='" + r.rid + "'><td class='num'>" + (i == null ? "" : i + 1) +
-      "</td><td>" + esc(r.method) + (r.rid === naive ? "<span class='mark n' title='naive leader'>N</span>" : "") + (r.rid === qual ? "<span class='mark q' title='qualified answer'>Q</span>" : "") +
+      "</td><td>" + esc(r.method) + (r.rid === naive ? "<span class='mark n' title='the top number on the leaderboard'>top</span>" : "") + (r.rid === qual ? "<span class='mark q' title='the fair-comparison answer'>fair</span>" : "") +
       "</td><td class='num'>" + val(r.value) + "</td><td>" + paperLink(r) + "<div class='small muted'>" + pointer(r.source_location) + "</div>" +
       (auditBadge(r) ? "<div class='small'>" + auditBadge(r) + "</div>" : "") + "<div class='small'>" + reportLink(r) + "</div></td></tr>";
     const table = (rs, numbered, id) => {
-      const LIM = 10, open = S.open && S.open[id];
-      const shown = open ? rs : rs.slice(0, LIM);
+      const LIM = 10, open = S.open[id], shown = open ? rs : rs.slice(0, LIM);
       return "<div class='tbl-scroll'><table><thead><tr><th class='num'>#</th><th>Method</th><th class='num'>Value</th><th>Source</th></tr></thead><tbody>" +
         shown.map((r, i) => row(r, numbered ? i : null)).join("") + "</tbody></table></div>" +
-        (rs.length > LIM ? "<button class='more' data-open='" + id + "'>" + (open ? "Show fewer" : "Show all " + rs.length) + "</button>" : "");
+        (rs.length > LIM ? "<button class='linkish' data-open='" + id + "'>" + (open ? "Show fewer" : "Show all " + rs.length) + "</button>" : "");
     };
-    const boardNote = spellingOnly(b.clusters.map((c) => c.protocol)) ? SPELLING_NOTE : "";
-    let html = "<p class='small'><b>" + esc(b.dataset) + " · " + esc(b.metric) + "</b> · " + b.n_entries + " entries · " + b.clusters.length +
-      " comparable sub-board(s) · " + b.unknown_rids.length + " comparability-unknown · " + dirWord() + " · identity grade <span class='mono'>" + esc(b.grade) + "</span></p>" +
-      "<p class='small muted'>N marks the naive leader, Q the qualified answer. " + (S.picks.length === 1 ? "One record selected; select another." : "") + "</p>" + boardNote + "<div class='subboards'>";
+    let html = "<p class='small'>" + dirWord() + " · identity grade <span class='mono' title='how confidently the board identity resolves to the source data'>" + esc(b.grade) + "</span>. Pick any two records to open their comparability determination." +
+      (S.picks.length === 1 ? " One record picked; pick another." : "") + "</p>" + (spellingOnly(b.clusters.map((c) => c.protocol)) ? SPELLING_NOTE : "") + "<div class='subboards'>";
     b.clusters.forEach((c, i) => {
-      const isSel = sel.has(i);
       const labels = [];
-      if (i === b.principal_cluster) labels.push("<span class='sb-label'>largest comparable cluster</span>");
-      if (isSel) labels.push("<span class='sb-label sel'>selected by " + esc(S.tmpl) + "</span>");
-      html += "<div class='sb" + (isSel ? " selected" : "") + "'><div class='sb-head'>" + protoChips(c.protocol) + "<span>" + labels.join(" · ") + "</span></div>" +
-        table(ranked(c.rids), true, "c" + i) + "</div>";
+      if (i === b.principal_cluster) labels.push("<span class='sb-label'>largest comparable group</span>");
+      if (sel.has(i)) labels.push("<span class='sb-label sel'>used by this question</span>");
+      html += "<div class='sb" + (sel.has(i) ? " selected" : "") + "'><div class='sb-head'>" + protoChips(c.protocol) + "<span>" + labels.join(" · ") + "</span></div>" + table(ranked(c.rids), true, "c" + i) + "</div>";
     });
-    if (b.unknown_rids.length) {
-      html += "<div class='sb unknown'><div class='sb-head'><span class='sb-label'>Comparability unknown: flagged, not ranked</span></div>" +
-        "<p class='small muted'>Split, metric surface or unit not all observed. Shown in descending order of value for reference only.</p>" +
-        table(ranked(b.unknown_rids), false, "u") + "</div>";
-    }
-    html += "</div>";
-    $("boardSection").hidden = false;
-    $("boardBody").innerHTML = html;
+    if (b.unknown_rids.length) html += "<div class='sb unknown'><div class='sb-head'><span class='sb-label'>Unknown setup: flagged, not ranked</span></div>" +
+      "<p class='small muted'>Split, metric name or unit not all recorded. Listed by value for reference only.</p>" + table(ranked(b.unknown_rids), false, "u") + "</div>";
+    $("boardBody").innerHTML = html + "</div>";
     $("boardBody").onclick = (e) => {
-      const more = e.target.closest(".more");
-      if (more) { S.open = S.open || {}; S.open[more.dataset.open] = !S.open[more.dataset.open]; renderBoard(); return; }
+      const more = e.target.closest("[data-open]");
+      if (more) { S.open[more.dataset.open] = !S.open[more.dataset.open]; renderBoard(); return; }
       const tr = e.target.closest("tr.pick"); if (!tr || e.target.closest("a")) return;
       const rid = +tr.dataset.rid;
       if (S.picks.includes(rid)) S.picks = S.picks.filter((x) => x !== rid);
@@ -572,39 +887,116 @@
       if (S.picks.length === 2) S.slot = 0;
       renderBoard();
       if (S.board.scored) renderCertificates(); else renderPickOnly();
-      if (S.picks.length === 2) $("certSection").scrollIntoView({ behavior: "smooth", block: "start" });
+      if (S.picks.length === 2) { $("certSection").open = true; $("certSection").scrollIntoView({ behavior: "smooth", block: "start" }); }
     };
   }
 
   function renderPickOnly() {
     $("certSection").hidden = S.picks.length !== 2;
     if (S.picks.length !== 2) return;
-    $("certIntro").textContent = "";
-    $("certSlots").innerHTML = "";
+    $("certIntro").textContent = ""; $("certSlots").innerHTML = "";
     const c = certFor(S.picks[0], S.picks[1]);
     $("certBody").innerHTML = c ? certHTML(c) : missingHTML(S.picks[0], S.picks[1]);
   }
 
-  // ------------------------------------------------------------------ typed questions
+  function renderThreshold() {
+    const b = S.board, sec = $("thresholdSection");
+    sec.hidden = !b.scored || S.tmpl !== "Q_threshold";
+    if (sec.hidden) return;
+    const q = b.answers.Q_threshold, name = q.champion_rid != null ? rec(q.champion_rid).method + "’s" : "the test-set";
+    $("thresholdSummary").innerHTML = "Does " + esc(name) + " lead hold under other setups?";
+    if (q.champion_rid == null) { $("thresholdBody").innerHTML = "<p>Not enough evidence. " + esc(plainTerms(q.reason)) + "</p>"; return; }
+    const c = rec(q.champion_rid), tr = rec(q.tau_rid);
+    let html = "<p class='small'>The test-set leader and the bar (the next test-set record) come from the largest test-set group. The leader must beat the bar in every group where it meets a rival.</p>" +
+      "<ul class='minilist'><li>Leader: <b>" + esc(c.method) + " " + val(c.value) + "</b></li><li>Bar: " + val(q.tau) + " (" + esc(tr.method) + ", " + paperLink(tr) + ")</li></ul>";
+    if (q.status === "insufficient") html += "<p><b>Not enough evidence.</b> " + esc(plainTerms(q.reason)) + "</p>";
+    else html += "<div class='tbl-scroll'><table><thead><tr><th>Group</th><th class='num'>Leader</th><th>Beats the bar?</th><th class='num'>n</th></tr></thead><tbody>" +
+      q.groups.map((g) => "<tr><td>" + protoShort(g.key) + "</td><td class='num'>" + val(rec(g.champion_rid).value) + "</td><td>" + (g.clears ? "<span class='rel-same'>yes</span>" : "<span class='rel-diff'>no</span>") + "</td><td class='num'>" + g.rids.length + "</td></tr>").join("") +
+      "</tbody></table></div>" + (spellingOnly(q.groups.map((g) => g.key)) ? SPELLING_NOTE : "");
+    $("thresholdBody").innerHTML = html;
+  }
+
   function renderTyped() {
     const T = S.board.typed_questions || [];
     $("typedSection").hidden = !T.length;
     if (!T.length) return;
+    $("typedSummary").innerHTML = "Typed comparative questions on this leaderboard <span>· " + T.length + " development record" + (T.length === 1 ? "" : "s") + "</span>";
     const prov = (p) => p.map((x) => esc(x.method) + " " + val(x.value) + " (" + paperLink(x) + ", " + pointer(x.source_location) + ")").join("; ");
     $("typedBody").innerHTML = T.map((q) => {
       const conds = (q.conditions || []).map((c) => "<li>" + protoChips(c.protocol) + " " +
         (c.verdict ? "verdict: <b>" + esc(c.verdict) + "</b>" : "leader and every method within its noise band: " + esc((c.winners || []).join(", "))) +
         (c.provenance && c.provenance.length ? "<details><summary>" + c.provenance.length + " record pointer(s)</summary>" + prov(c.provenance) + "</details>" : "") + "</li>").join("");
-      return "<div class='typed-item'><div><b>" + esc(q.question) + "</b></div>" +
-        "<div class='small'><span class='atype'>" + esc(q.answer_type.replace("_", " ")) + "</span>" +
+      return "<div class='typed-item'><div><b>" + esc(q.question) + "</b></div><div class='small'><span class='atype'>" + esc(q.answer_type.replace("_", " ")) + "</span>" +
         (q.answer != null ? " answer: <b>" + esc(q.answer) + "</b>" : "") + (q.abstention_warranted ? " · abstention warranted" : "") + "</div>" +
-        "<div class='small muted'>" + esc(q.rationale) + "</div>" +
-        (conds ? "<ul class='small'>" + conds + "</ul>" : "") +
+        "<div class='small muted'>" + esc(plainTerms(q.rationale)) + "</div>" + (conds ? "<ul class='small'>" + conds + "</ul>" : "") +
         (q.provenance && q.provenance.length ? "<div class='small'>Records: " + prov(q.provenance) + "</div>" : "") + "</div>";
     }).join("");
   }
 
+  // ------------------------------------------------------------------ browse page
+  const OUTCOME = {
+    differ: ["w", "answers differ"], same: ["g", "same answer"], none: ["n", "not enough evidence"],
+    depends: ["q", "depends on the group"], noanswer: ["n", "no answer · metric direction unknown"],
+  };
+  function outcomeOf(r) {
+    if (!r.scored) return "noanswer";
+    const s = r.st.Q_official;
+    return s === "i" ? "none" : s === "c" ? "depends" : r.flip ? "differ" : "same";
+  }
+  const PAGE = 100;
+  function prepareBrowse() {
+    if (S.browse) return;
+    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const rows = S.index.map((r) => ({ r, key: norm(r.dataset + " " + r.metric), oc: outcomeOf(r), hand: S.auditBoards.has(r.id), bad: S.auditBoards.get(r.id) }));
+    const rank = (x) => (x.hand ? 0 : x.oc === "differ" ? 1 : 2);
+    rows.sort((a, b) => rank(a) - rank(b) || b.r.n - a.r.n || a.key.localeCompare(b.key));
+    S.browse = { rows, q: "", f: "all", shown: PAGE, list: rows, norm };
+  }
+  function filterBrowse() {
+    const B = S.browse, toks = B.norm(B.q).split(" ").filter(Boolean);
+    B.list = B.rows.filter((x) => (B.f === "all" || (B.f === "hand" ? x.hand : x.oc === B.f)) && toks.every((t) => x.key.includes(t)));
+    B.shown = PAGE;
+    drawRows();
+  }
+  function drawRows() {
+    const B = S.browse;
+    $("browseRows").innerHTML = B.list.slice(0, B.shown).map((x) => {
+      const r = x.r, [cls, txt] = OUTCOME[x.oc];
+      const check = !x.hand ? "" : x.bad === 2 ? " <span class='chk bad'>\u26a0 checked, errors found</span>" : x.bad === 1 ? " <span class='chk unsure'>? checked, one label unclear</span>" : " <span class='chk'>\u2713 checked</span>";
+      return "<tr data-id='" + esc(r.id) + "'><td><a href='#q=Q_official&b=" + encodeURIComponent(r.id) + "'>" + esc(r.dataset) + "</a>" + check + "</td><td>" + esc(r.metric) + "</td><td class='num'>" + r.n + "</td><td><span class='pill tiny " + cls + "'>" + esc(txt) + "</span></td></tr>";
+    }).join("");
+    $("browseCount").textContent = "Showing " + fmt(Math.min(B.shown, B.list.length)) + " of " + fmt(B.list.length) + (B.list.length === B.rows.length ? "" : " matching") + " leaderboards.";
+    $("browseMore").hidden = B.shown >= B.list.length;
+  }
+  function showBrowse() {
+    prepareBrowse();
+    const B = S.browse;
+    $("boardView").hidden = true; $("browseView").hidden = false;
+    if (!$("browseRows")) {
+      const n = (f) => fmt(B.rows.filter((x) => (f === "hand" ? x.hand : x.oc === f)).length);
+      $("browseView").innerHTML = "<h2 class='ask'>Browse all " + fmt(B.rows.length) + " saved leaderboards</h2>" +
+        "<p class='muted'>Answers were computed once, offline, from a frozen Papers with Code archive. Pick a leaderboard to see both answers and how they were made.</p>" +
+        "<div class='bfilters'><input id='browseQ' type='text' placeholder='Filter by dataset or metric' aria-label='Filter by dataset or metric' autocomplete='off' spellcheck='false'>" +
+        "<div class='chips' id='browseF'>" + [["all", "All"], ["differ", "Answers differ (" + n("differ") + ")"], ["same", "Same answer (" + n("same") + ")"], ["none", "Not enough evidence (" + n("none") + ")"], ["hand", "✓ Checked by hand (" + n("hand") + ")"]]
+          .map(([f, t]) => "<button class='chip" + (f === "all" ? " on" : "") + "' data-f='" + f + "'>" + esc(t) + "</button>").join("") + "</div></div>" +
+        "<div class='btable'><table><thead><tr><th>Dataset</th><th>Metric</th><th class='num'>Result records</th><th>Outcome</th></tr></thead><tbody id='browseRows'></tbody></table></div>" +
+        "<p class='small muted' id='browseCount'></p><p><button class='linkish' id='browseMore'>Show more</button></p><div id='browseEnd'></div>";
+      $("browseQ").oninput = (e) => { B.q = e.target.value; filterBrowse(); };
+      $("browseF").onclick = (e) => {
+        const c = e.target.closest("button"); if (!c) return;
+        B.f = c.dataset.f; [...$("browseF").children].forEach((x) => x.classList.toggle("on", x === c)); filterBrowse();
+      };
+      const more = () => { if (B.shown < B.list.length) { B.shown += PAGE; drawRows(); } };
+      $("browseMore").onclick = more;
+      $("browseRows").onclick = (e) => { const tr = e.target.closest("tr[data-id]"); if (tr && !e.target.closest("a")) go(tr.dataset.id, "Q_official"); };
+      if ("IntersectionObserver" in window) new IntersectionObserver((es) => { if (es[0].isIntersecting && !$("browseView").hidden) more(); }, { rootMargin: "300px" }).observe($("browseEnd"));
+      drawRows();
+    }
+    window.scrollTo(0, 0);
+    $("browseQ").focus({ preventScroll: true });
+  }
+
   init().catch((e) => {
-    $("result").innerHTML = "<div class='card'>Could not load the precomputed data (" + esc(e.message) + "). If you opened this file directly, serve the folder over HTTP instead.</div>";
+    $("ask").textContent = "Could not load the saved data (" + e.message + "). If you opened this file directly, serve the folder over HTTP instead.";
   });
 })();

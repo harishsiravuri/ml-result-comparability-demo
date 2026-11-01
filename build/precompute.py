@@ -52,43 +52,26 @@ DOI_VERSION = "10.5281/zenodo.21715276"
 DOI_CONCEPT = "10.5281/zenodo.21715275"
 
 # Worked examples. Only boards whose displayed records passed Harish's hand audit (2026-10-09/11).
-# Fields: board, template, title, note, caveat, and optional: banner (overrides the winner-change
-# text), chip (False = reachable only as a follow-up view), followup (index of the next view).
+# Fields: board, template, label (chip text), why (first-screen sentence, HTML allowed, overrides the
+# generated one), caveat (one short line under it); chip=False = reachable only as a follow-up view.
 CURATED = [
-    dict(board="hash:fb3db959fa006931|metric:average-map", template="Q_official",
-         title="ActivityNet-1.3 Average mAP",
-         note="The best raw number, 34.88 (BSN++), is a validation result. Under the official test protocol the "
-              "answer is BSN at 32.84.",
-         caveat="Completeness was checked within the cited papers only: the BSN++ paper reports no ActivityNet-1.3 "
-                "test average mAP. This is not a claim about the best result anywhere in the literature.",
-         followup=1),
-    dict(board="hash:fb3db959fa006931|metric:average-map", template="Q_threshold",
-         title="ActivityNet-1.3: does the lead survive?", chip=False,
-         note="Second view of the same board. BSN's lead over the next test entry (32.26) holds on the test split "
-              "but not under validation, where BSN reports 30.03.",
-         caveat="Completeness was checked within the cited papers only."),
-    dict(board="pwc-dataset:mot17|hash:4dde914d469e1478", template="Q_official", title="MOT17 IDF1",
-         banner="Top entry changes: validation score replaced by test score.",
-         note="BYTE and ByteTrack are the same tracker. The naive leader is its validation run; the qualified "
-              "answer is its MOT17 test-set entry.",
-         caveat="The validation and test runs also use different training data, so the 2-point gap is not only "
-                "the effect of changing the evaluation set."),
-    dict(board="pwc-dataset:gopro|metric:psnr", template="Q_official", title="GoPro PSNR",
-         note="The naive leader has no split recorded, so no certificate can cover it.",
-         caveat="The qualified record's source is internally inconsistent: its supplement calls the same 1,111 GoPro "
-                "pairs a validation set in prose and test samples in a table. The test label is therefore uncertain."),
-    dict(board="pwc-dataset:csl-daily|metric:wer", template="Q_trend", title="CSL-Daily WER by preprint year",
-         note="In 2023 the test-split and validation-split leaders differ, so the per-year answer is conditional.",
-         caveat="Years are the first-submission year of the arXiv preprint that reports each number, not the year a "
-                "method or result first appeared. The 2023 values were checked against arXiv 2305.03614v3; later "
-                "versions rename the method and change results. In 2025, SLA-Adapter and SLA-LoRA tie at 25.8. "
-                "This view groups records by preprint year; it is not a historical performance frontier."),
-    dict(board="hash:2b958adf44f0cb1f|metric:bleu", template="Q_official", title="WMT'14 English-French BLEU",
-         note="No split was identified in the extracted records, so the official question cannot be answered.",
-         caveat="All four entries come from one paper (arXiv 1901.07291). The paper gives no explicit split label "
-                "beside these numbers; its evaluation setup is inherited from a cited protocol. The abstention means "
-                "no split was identified in the extracted records, not that the split cannot be recovered. The metric "
-                "is BLEU in the source even where the record leaves it unrecorded."),
+    dict(board="hash:fb3db959fa006931|metric:average-map", template="Q_official", label="ActivityNet-1.3",
+         caveat="Checked within the cited papers only: the BSN++ paper reports no test-set Average mAP."),
+    dict(board="hash:fb3db959fa006931|metric:average-map", template="Q_threshold", label="ActivityNet-1.3", chip=False,
+         caveat="Checked within the cited papers only."),
+    dict(board="pwc-dataset:mot17|hash:4dde914d469e1478", template="Q_official", label="MOT17",
+         why="BYTE and ByteTrack are <b>the same tracker</b>: the top number is its validation run, and the fair "
+             "answer is its test-set run.",
+         caveat="The two runs also use different training data, so the 2-point gap is not only the change of data split."),
+    dict(board="pwc-dataset:gopro|metric:psnr", template="Q_official", label="GoPro",
+         caveat="Restormer's own supplement calls these 1,111 pairs validation in prose and test in a table, so its "
+                "test label is uncertain."),
+    dict(board="pwc-dataset:csl-daily|metric:wer", template="Q_trend", label="CSL-Daily by year",
+         caveat="Years are the arXiv first-submission year of the paper reporting each number, not when a result "
+                "first appeared; 2023 values were checked against 2305.03614v3. In 2025 SLA-Adapter and SLA-LoRA tie."),
+    dict(board="hash:2b958adf44f0cb1f|metric:bleu", template="Q_official", label="WMT'14 (not enough evidence)",
+         caveat="All four results come from one paper, which gives no split label beside them and inherits its setup "
+                "from a cited paper. The split may be recoverable; it is not in the extracted records."),
 ]
 
 
@@ -449,10 +432,8 @@ def main():
         bp = shards[shard_of(lid)][lid]
         if not bp.get("scored"):
             fail(f"curated board not scored: {key}")
-        examples.append({"n": i, "board": lid, "template": tmpl, "title": ex["title"], "note": ex["note"],
-                         "caveat": ex.get("caveat", ""), "banner": ex.get("banner"),
-                         "chip": ex.get("chip", True),
-                         "followup": (ex["followup"] + 1) if "followup" in ex else None,
+        examples.append({"n": i, "board": lid, "template": tmpl, "label": ex["label"], "why": ex.get("why"),
+                         "caveat": ex.get("caveat", ""), "chip": ex.get("chip", True),
                          "status": bp["answers"][tmpl]["status"], "flip": bp["answers"]["flip"]})
 
     for content in shards.values():
@@ -526,7 +507,7 @@ def main():
     print(json.dumps(meta["stats"], indent=1))
     print("examples:")
     for e in examples:
-        print(f"  {e['n']:>2} {e['template']:<12} {e['status']:<12} flip={e['flip']!s:<5} {e['title']}")
+        print(f"  {e['n']:>2} {e['template']:<12} {e['status']:<12} flip={e['flip']!s:<5} {e['label']}")
 
 
 if __name__ == "__main__":
