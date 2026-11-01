@@ -5,34 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leaderboard Check</title>
 <meta name="description" content="Is the top number on a machine-learning leaderboard a fair comparison? See the top number next to the best test-set result, how the answer was made, and the comparability determination behind it.">
-<link rel="stylesheet" href="style.css?v=29">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232a4d8f'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css?v=30">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230066CC'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
-<div class="wrap">
-  <header class="top"><h1><a href="#">Leaderboard Check</a></h1></header>
+<div class="shell">
+  <header class="top">
+    <h1><a href="#">Leaderboard Check</a></h1>
+    <p class="tag">Are the results on a leaderboard measured the same way?</p>
+    <nav class="toplinks" id="topLinks"></nav>
+  </header>
 
-  <main>
-    <section id="boardView">
-      <p class="intro">Leaderboards rank AI methods by one number. But papers measure that number in different ways. Some use <b>validation data</b>, which researchers use while tuning a method. Others use <b>test data</b>, held back for the final measurement. Ranking the two together is like ranking practice-exam scores with final-exam scores. This page shows the top number next to the best number from a fair comparison.</p>
-      <h2 class="ask" id="ask">Loading&hellip;</h2>
-      <p class="gloss" id="gloss"></p>
-      <div class="duo" id="cards"></div>
-      <p class="why" id="why"></p>
-      <p class="caveat" id="caveat" hidden></p>
-      <div class="explore">
-        <div class="switch" id="modeSwitch" role="group" aria-label="Question type" hidden></div>
-        <div class="row"><span class="small muted">Try another research task:</span><div class="chips" id="chips"></div></div>
+  <main id="boardView" class="dash">
+    <aside class="col left">
+      <p class="intro">Leaderboards rank AI methods by one number, but papers measure it in different ways. <b>Validation data</b> are used while tuning a method. <b>Test data</b> are held back for the final measurement. Ranking the two together is like ranking practice-exam scores with final-exam scores.</p>
+      <div class="ctl">
+        <h2>Scenarios</h2>
+        <div class="scen" id="chips"></div>
       </div>
+      <div class="ctl">
+        <div class="switch" id="modeSwitch" role="group" aria-label="Question type" hidden></div>
+      </div>
+      <div class="ctl" id="player">
+        <h2>Replay</h2>
+        <div class="btns">
+          <button type="button" id="pBack" title="Previous stage">&#9664;</button>
+          <button type="button" id="pPlay">Play</button>
+          <button type="button" id="pNext" title="Next stage">&#9654;</button>
+          <button type="button" id="pEnd">Show result</button>
+        </div>
+        <label class="speed">Speed <input type="range" id="pSpeed" min="1" max="5" step="1" value="1"><output id="pSpeedOut">1x</output></label>
+      </div>
+    </aside>
 
+    <section class="col mid">
+      <div class="head">
+        <h2 class="ask" id="ask">Loading&hellip;</h2>
+        <p class="gloss" id="gloss"></p>
+        <p class="why" id="why"></p>
+        <p class="caveat" id="caveat" hidden></p>
+      </div>
       <section class="made">
         <h2>How this answer was made</h2>
-        <p class="madeline">The same five stages run on every leaderboard. Select a stage to see its data.</p>
-        <div id="pipeWrap"><div class="pipe" id="pipe"></div><div class="flow" id="flow"></div><p class="legend"><span class="lg test"></span>test set <span class="lg other"></span>other split <span class="lg unk"></span>split not recorded <span class="lg-note">Each dot is one result record. In the answer box, the best value is at the top.</span><button type="button" class="linkish" id="flowToggle">Pause</button></p><div class="peek" id="peek" hidden></div></div>
+        <div id="pipeWrap"><div class="pipe" id="pipe"></div><div class="flow" id="flow"></div><p class="legend"><span class="lg test"></span>test set <span class="lg other"></span>other split <span class="lg unk"></span>split not recorded <span class="lg-note">Each dot is one result record.</span></p></div>
       </section>
-
-      <div class="more">
-        <details id="certSection">
+      <div class="lower">
+        <div class="peek" id="peek"></div>
+        <div class="more">
+        <details id="certSection" name="more">
           <summary>Comparability determination <span>&middot; what matched and what differed</span></summary>
           <div class="det">
             <p class="muted small" id="certIntro"></p>
@@ -40,15 +60,15 @@
             <div id="certBody"></div>
           </div>
         </details>
-        <details id="boardSection">
+        <details id="boardSection" name="more">
           <summary id="boardSummary">All records, grouped by setup</summary>
           <div class="det" id="boardBody"></div>
         </details>
-        <details id="thresholdSection">
+        <details id="thresholdSection" name="more">
           <summary id="thresholdSummary">Does the lead hold?</summary>
           <div class="det" id="thresholdBody"></div>
         </details>
-        <details id="readSection">
+        <details id="readSection" name="more">
           <summary>How to read this, and known errors <span>&middot; 14 of 56 hand-checked labels were wrong</span></summary>
           <div class="det">
             <p id="auditText"></p>
@@ -74,16 +94,27 @@
           </div>
         </details>
       </div>
+      </div>
     </section>
 
-    <section id="browseView" hidden></section>
+    <aside class="col right">
+      <div class="duo" id="cards"></div>
+      <div class="lb">
+        <div class="lb-h"><h2 id="lbTitle">Leaderboard</h2><span class="small muted" id="lbNote"></span></div>
+        <div class="lb-list" id="lbList"></div>
+        <p class="lb-foot" id="lbFoot"></p>
+      </div>
+    </aside>
   </main>
 
+  <main id="browseView" class="browse" hidden></main>
+
   <footer class="foot">
-    <p id="footStats"></p>
-    <p id="footLinks"></p>
+    <span id="footStats"></span>
+    <span id="footLinks"></span>
   </footer>
 </div>
-<script src="app.js?v=31"></script>
+<div class="inspect" id="inspect" hidden></div>
+<script src="app.js?v=32"></script>
 </body>
 </html>

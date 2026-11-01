@@ -16,7 +16,7 @@
     .replace(/\bfacet/g, "field");
   const STATUS_LABEL = { robust: "holds in every group", conditional: "depends on the group", insufficient: "not enough evidence" };
 
-  const S = { meta: null, templates: null, index: [], examples: [], shards: {}, board: null, tmpl: "Q_official", picks: [], slot: 0, exampleN: null };
+  const S = { meta: null, templates: null, index: [], examples: [], shards: {}, board: null, tmpl: "Q_official", picks: [], slot: 0, exampleN: null, T: 0, speed: 1 };
 
   // ------------------------------------------------------------------ helpers
   const $ = (id) => document.getElementById(id);
@@ -296,16 +296,11 @@
     S.byId = new Map(index.map((r) => [r.id, r]));
     renderStatic();
     window.addEventListener("hashchange", route);
-    let wasNarrow = window.matchMedia("(max-width: 760px)").matches;
-    window.addEventListener("resize", () => {
-      const n = window.matchMedia("(max-width: 760px)").matches;
-      if (n !== wasNarrow) { wasNarrow = n; if (S.board && !$("boardView").hidden) renderPipeline(); }
-    });
     await route();
   }
 
   async function route() {
-    if (location.hash === "#browse") { showBrowse(); return; }
+    if (location.hash === "#browse") { stopTimeline(); showBrowse(); return; }
     const h = new URLSearchParams(location.hash.slice(1));
     let id = h.get("b"), t = h.get("q");
     if (!id) { id = S.examples[0].board; t = S.examples[0].template; }
@@ -314,7 +309,7 @@
     if (!row) { $("boardView").hidden = true; $("browseView").hidden = false; $("browseView").innerHTML = "<p>Leaderboard not found: " + esc(id) + "</p>"; return; }
     if (!S.shards[row.shard]) S.shards[row.shard] = await getJSON("data/boards/" + row.shard + ".json");
     S.board = S.shards[row.shard][id];
-    S.tmpl = t; S.picks = []; S.slot = 0; S.open = {}; S.stage = -1;
+    S.tmpl = t; S.picks = []; S.slot = 0; S.open = {}; S.stage = 0;
     const ex = S.examples.find((e) => e.board === id && e.template === t);
     S.exampleN = ex ? ex.n : null;
     $("browseView").hidden = true; $("boardView").hidden = false;
@@ -326,18 +321,26 @@
   // ------------------------------------------------------------------ static parts
   function renderStatic() {
     const st = S.meta.stats;
-    const chips = S.examples.filter((e) => e.chip !== false).map((e) =>
-      "<button class='chip' data-n='" + e.n + "' title='" + esc(e.label) + "'>" + esc(CHIP_PLAIN[e.board] || e.label) + "</button>").join("") +
-      "<a class='chip' id='browseChip' href='#browse'>Browse all " + fmt(st.boards) + " leaderboards</a>";
+    const chips = S.examples.filter((e) => e.chip !== false).map((e) => {
+      const sc = SCENARIO[e.n] || {};
+      return "<button data-n='" + e.n + "' title='" + esc(e.label) + "'>" + esc(sc.title || e.label) + "<span>" + esc(CHIP_PLAIN[e.board] || e.label) + "</span></button>";
+    }).join("") + "<a id='browseChip' href='#browse'>Browse all " + fmt(st.boards) + " leaderboards</a>";
     $("chips").innerHTML = chips;
     $("chips").onclick = (e) => {
-      const btn = e.target.closest("button.chip"); if (!btn) return;
+      const btn = e.target.closest("button"); if (!btn) return;
       const ex = S.examples.find((x) => x.n === +btn.dataset.n); go(ex.board, ex.template);
     };
-    $("flowToggle").onclick = () => {
-      S.flowPaused = !S.flowPaused; $("flowToggle").textContent = S.flowPaused ? "Play" : "Pause";
-      if (S.flowSync) S.flowSync();
-    };
+    $("pPlay").onclick = togglePlay;
+    $("pBack").onclick = () => seek(Math.max(0, Math.ceil(S.T) - 1));
+    $("pNext").onclick = () => seek(Math.min(5, Math.floor(S.T) + 1));
+    $("pEnd").onclick = () => seek(5);
+    $("pSpeed").oninput = (e) => { S.speed = +e.target.value; $("pSpeedOut").textContent = S.speed + "x"; };
+    $("lbList").addEventListener("mouseover", (e) => { const r = e.target.closest(".lb-row"); if (r && !S.pinned) showInspect(+r.dataset.rid, r, false); });
+    $("lbList").addEventListener("mouseleave", () => { if (!S.pinned) $("inspect").hidden = true; });
+    $("lbList").addEventListener("click", (e) => { const r = e.target.closest(".lb-row"); if (r) showInspect(+r.dataset.rid, r, true); });
+    $("inspect").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeInspect(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeInspect(); });
+    $("topLinks").innerHTML = "<a href='#browse'>Browse all</a><a href='" + esc(S.meta.repo_url) + "' target='_blank' rel='noopener'>Dataset</a><a href='" + esc(S.meta.demo_repo_url) + "' target='_blank' rel='noopener'>Source code</a><a href='" + esc(S.meta.demo_repo_url) + "/issues/new?labels=label-error' target='_blank' rel='noopener'>Report a label error</a>";
     $("modeSwitch").onclick = (e) => { const b = e.target.closest("button"); if (b && S.board) go(S.board.id, b.dataset.t); };
 
     $("templateHelp").innerHTML = S.templates.templates.map((t) =>
@@ -356,10 +359,7 @@
     $("licence").innerHTML = "Data: <a href='https://creativecommons.org/licenses/by-sa/4.0/' target='_blank' rel='noopener'>CC BY-SA 4.0</a>. Evidence is given as pointers only (arXiv id, abstract URL, source location); no paper text is redistributed. " +
       "All data are frozen and precomputed; this page makes no model or server calls.";
     $("footStats").textContent = fmt(st.boards) + " leaderboards · " + fmt(st.entries) + " result records · " + fmt(st.certificates) + " comparability determinations";
-    $("footLinks").innerHTML = "Data: frozen Papers with Code archive (" + esc(S.meta.snapshot.replace(/.*frozen /, "")) + ") · DOI <a href='https://doi.org/" + esc(S.meta.doi_version) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_version.replace("10.5281/", "10.5281/")) + "</a> " +
-      "(all versions <a href='https://doi.org/" + esc(S.meta.doi_concept) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_concept.replace("10.5281/zenodo.", "…")) + "</a>) · " +
-      "<a href='" + esc(S.meta.repo_url) + "' target='_blank' rel='noopener'>dataset</a> · <a href='" + esc(S.meta.demo_repo_url) + "' target='_blank' rel='noopener'>demo source</a> · " +
-      "<a href='" + esc(S.meta.demo_repo_url) + "/issues/new?labels=label-error' target='_blank' rel='noopener'>Report a label error</a> · CC BY-SA 4.0";
+    $("footLinks").innerHTML = "Frozen Papers with Code archive (" + esc(S.meta.snapshot.replace(/.*frozen /, "")) + ") · DOI <a href='https://doi.org/" + esc(S.meta.doi_version) + "' target='_blank' rel='noopener'>" + esc(S.meta.doi_version) + "</a> · CC BY-SA 4.0";
   }
 
   // ------------------------------------------------------------------ board page
@@ -367,7 +367,7 @@
     const b = S.board, ex = S.examples.find((e) => e.n === S.exampleN);
     let parent = ex;
     if (ex && ex.chip === false) parent = S.examples.find((x) => x.board === ex.board && x.chip !== false);
-    [...$("chips").querySelectorAll("button.chip")].forEach((c) => c.classList.toggle("on", !!parent && +c.dataset.n === parent.n));
+    [...$("chips").querySelectorAll("button")].forEach((c) => c.classList.toggle("on", !!parent && +c.dataset.n === parent.n));
     $("ask").innerHTML = askText();
     const task = TASK_GLOSS[b.id];
     $("gloss").textContent = (task ? task + " " : "") + (b.scored ? dirWord().replace(/^./, (c) => c.toUpperCase()) + "." : "");
@@ -380,7 +380,9 @@
     if (ex && ex.caveat) $("caveat").innerHTML = "<b>Caveat:</b> " + esc(ex.caveat);
     renderPipeline();
     renderFlow();
-    ["certSection", "boardSection", "thresholdSection", "typedSection"].forEach((id) => { $(id).open = false; });
+    buildLeaderboard();
+    startTimeline();
+    ["certSection", "boardSection", "thresholdSection", "typedSection", "readSection"].forEach((id) => { $(id).open = false; });
     if (b.scored) { $("certSection").hidden = false; renderCertificates(); } else { $("certSection").hidden = true; }
     renderBoard();
     renderThreshold();
@@ -394,6 +396,14 @@
     "pwc-dataset:gopro|metric:psnr": "A benchmark for removing motion blur from images.",
     "pwc-dataset:csl-daily|metric:wer": "A benchmark for recognising Chinese Sign Language in videos.",
     "hash:2b958adf44f0cb1f|metric:bleu": "A benchmark for translating English into French.",
+  };
+
+  const SCENARIO = {
+    1: { title: "A validation score sits on top" },
+    3: { title: "One tracker, two splits" },
+    4: { title: "The top score has no recorded split" },
+    5: { title: "The winner depends on the setup" },
+    6: { title: "Too little evidence to answer" },
   };
 
   const CHIP_PLAIN = {
@@ -515,36 +525,43 @@
 
   function renderPipeline() {
     const m = pipelineModel(), peek = $("peek");
-    $("pipeWrap").appendChild(peek);   // the panel sits inside #pipe on phones; lift it out before redrawing
     let html = "";
     m.stages.forEach((s, i) => {
-      html += "<button type='button' class='stg" + (s.fin ? " fin" : "") + (i === S.stage ? " on" : "") + "' data-s='" + i + "' aria-expanded='" + (i === S.stage) + "'>" +
-        (s.io ? "<span class='io'>" + esc(s.io) + "</span>" : "") + "<span class='stg-t'>" + (i + 1) + " · " + esc(s.t) + "</span><span class='stg-d'>" + esc(s.d) + "</span>" +
-        (s.out ? "<span class='io out'>" + esc(s.out) + "</span>" : "") + "</button>";
-      if (i < 4) html += "<div class='arr'><span>" + esc(m.arrows[i]) + "</span> <span class='arrow-mark'></span></div>";
+      html += "<button type='button' class='stg" + (i === S.stage ? " on" : i < S.stage ? " done" : "") + "' data-s='" + i + "' aria-pressed='" + (i === S.stage) + "'>" +
+        "<span class='stg-t'>" + (i + 1) + " · " + esc(s.t) + "</span><span class='stg-d'>" + esc(s.d) + "</span>" +
+        (s.out && S.stage === 4 ? "<span class='io out'>" + esc(s.out) + "</span>" : "") + "</button>";
     });
     $("pipe").innerHTML = html;
-    const pick = (el) => {
-      const i = +el.dataset.s;
-      S.stage = i === S.stage ? -1 : i; renderPipeline();
-      [...$("flow").querySelectorAll(".fl-band")].forEach((b) => b.classList.toggle("on", +b.dataset.s === S.stage));
-    };
-    [...$("pipe").querySelectorAll(".stg")].forEach((el) => {
-      el.onclick = () => pick(el);
-    });
-    peek.hidden = S.stage < 0;
-    if (S.stage < 0) { peek.innerHTML = ""; return; }
-    peek.innerHTML = stagePanel(S.stage, m);
+    [...$("pipe").querySelectorAll(".stg")].forEach((el) => { el.onclick = () => seek(+el.dataset.s + 1); });
+    peek.innerHTML = "<div>" + stagePanel(S.stage, m) + "</div>" + stageCode(S.stage);
     peek.onclick = (e) => { const b = e.target.closest("[data-opencert]"); if (b) { $("certSection").open = true; $("certSection").scrollIntoView({ behavior: "smooth", block: "start" }); } };
-    // On phones the stages stack, so the panel sits right under the chosen stage.
-    if (window.matchMedia("(max-width: 760px)").matches) {
-      $("pipe").querySelector(".stg.on").after(peek);
+  }
+
+  /* One real record followed through the stages: the leaderboard's top record. Each stage adds its fields. */
+  function stageCode(i) {
+    const b = S.board, r = b.scored ? rec(b.answers.Q_any.winner_rid) : b.records[0];
+    if (!r) return "";
+    const fields = [
+      [["method", r.method], ["value", r.value], ["arxiv_id", r.arxiv_id], ["source", r.source_location || null]],
+      [["split", r.proto.split], ["metric_name", r.proto.metric_surface], ["unit", r.proto.unit]],
+      [["group", r.cluster == null ? "unknown setup" : r.cluster + 1]],
+    ];
+    if (b.scored) {
+      const { kept, why } = leftOut(), M = lbModel();
+      fields.push(kept.has(r.rid) ? [["kept", true]] : [["kept", false], ["reason", why.get(r.rid)]]);
+      fields.push([["rank_before", M.before.get(r.rid)], ["answer", M.single && M.after.has(r.rid) ? "rank " + M.after.get(r.rid) : kept.has(r.rid) ? "in the answer" : "not in the answer"]]);
     }
+    const lines = fields.slice(0, i + 1).flatMap((set, k) => set.map(([key, v]) => {
+      const t = esc(JSON.stringify(key)) + ": " + esc(JSON.stringify(v));
+      return "  " + (k === i ? "<i>" + t + "</i>" : t);
+    }));
+    return "<div><div class='code-h'>The top record at this stage</div><pre class='code'>{\n" + lines.join(",\n") + "\n}</pre></div>";
   }
 
   function leftOut() {
     // why each record is outside what the question keeps; counts stored records only
     const b = S.board, A = b.answers, kept = new Set(), why = new Map();
+    if (!b.scored) return { kept, why };
     if (S.tmpl === "Q_official") {
       A.Q_official.sets.forEach((s) => s.rids.forEach((i) => kept.add(i)));
       b.records.forEach((r) => { if (kept.has(r.rid)) return;
@@ -613,7 +630,7 @@
      their split colour), branch into setup groups, meet the question's gate, and the kept ones
      reach the answer. Positions are layout only; every count is a count of stored records. */
   const SVGNS = "http://www.w3.org/2000/svg";
-  const FW = 940, FH = 250, MID = 132, GATE_X = 656;   // five 188-wide columns, one under each stage card
+  const FW = 940, FH = 256, MID = 134, GATE_X = 656;   // five 188-wide columns, one under each stage card
   const NODE = { x0: 764, x1: 928, y0: 78, y1: 222 };
   const svgEl = (tag, attrs, parent) => {
     const e = document.createElementNS(SVGNS, tag);
@@ -726,22 +743,34 @@
   }
 
   function dotAt(d, p, tube) {
-    const o = d.off * tube, l = d.off * Math.max(d.lane.h - 8, 0), b = d.lane.bandY + d.off * Math.max(d.lane.bandH - 4, 0);
+    const o = d.off * tube, ly = d.lane.y + d.off * Math.max(d.lane.h - 8, 0), b = d.lane.bandY + d.off * Math.max(d.lane.bandH - 4, 0);
     if (p < 0.18) return cubic(d.src, [188, MID + o], p / 0.18);
     if (p < 0.3) { const t = (p - 0.18) / 0.12; return [188 + t * 94, MID + o]; }
     if (p < 0.42) { const t = (p - 0.3) / 0.12; return [282 + t * 94, MID + o + (b - MID - o) * t]; }
-    if (p < 0.6) return cubic([376, b], [470, d.lane.y + l], (p - 0.42) / 0.18);
-    if (p < 0.76) { const t = (p - 0.6) / 0.16; return [470 + t * 20, d.lane.y + l]; }
-    return cubic([490, d.lane.y + l], d.rest, (p - 0.76) / 0.24);
+    if (p < 0.55) return cubic([376, b], [470, ly], (p - 0.42) / 0.13);
+    if (p < 0.62) return [470 + 70 * (p - 0.55) / 0.07, ly];
+    const gate = d.kept ? [GATE_X + 6, ly] : d.rest;
+    if (p < 0.8) { const t = (p - 0.62) / 0.18; return [540 + (gate[0] - 540) * t, ly + (gate[1] - ly) * t]; }
+    return d.kept ? cubic(gate, d.rest, (p - 0.8) / 0.2) : d.rest;
+  }
+
+  /* Timeline: T runs from 0 to 5, one unit per stage. A dot's path is split at STAGE_P, and the stagger
+     spreads dots within a stage while every dot still arrives by the stage's end. */
+  const STAGE_P = [0, 0.18, 0.42, 0.62, 0.8, 1], STAGE_MS = 2200, HOLD_MS = 500, SEEK_MS = 260;
+  function dotProgress(T, stag) {
+    if (T >= 5) return 1;
+    const k = Math.floor(T), u = Math.min(1, Math.max(0, (T - k) * 1.6 - stag * 0.6)), e = u * u * (3 - 2 * u);
+    return STAGE_P[k] + (STAGE_P[k + 1] - STAGE_P[k]) * e;
   }
 
   function renderFlow() {
-    cancelAnimationFrame(S.flowRaf);
-    const host = $("flow"), m = flowModel(), mp = pipelineModel(), tube = m.tube;
+    const host = $("flow"), m = flowModel(), mp = pipelineModel(), tube = m.tube, rev = [];
     host.innerHTML = "";
-    const svg = svgEl("svg", { viewBox: "0 0 " + FW + " " + FH, role: "img", "aria-label": m.n + " result records flowing through five stages" }, host);
-    for (let i = 0; i < 5; i++) svgEl("rect", { x: i * FW / 5, y: 0, width: FW / 5, height: FH, class: "fl-band" + (i === S.stage ? " on" : ""), "data-s": i }, svg);
-    for (let i = 1; i < 5; i++) svgEl("line", { x1: i * FW / 5, x2: i * FW / 5, y1: 6, y2: FH - 4, class: "fl-sep" }, svg);
+    const rv = (el, r) => { el.classList.add("fl-rev"); rev.push({ el, r, on: true }); return el; };
+    const svg = svgEl("svg", { viewBox: "0 0 " + FW + " " + FH, role: "img", "aria-label": m.n + " result records moving through five stages" }, host);
+    const bands = [];
+    for (let i = 0; i < 5; i++) bands.push(svgEl("rect", { x: i * FW / 5, y: 0, width: FW / 5, height: FH, class: "fl-band" }, svg));
+    for (let i = 1; i < 5; i++) svgEl("line", { x1: i * FW / 5, x2: i * FW / 5, y1: 0, y2: FH, class: "fl-sep" }, svg);
     const g = svgEl("g", {}, svg);
 
     // stage 1: bars show how many records each paper gave
@@ -754,96 +783,232 @@
 
     // stage 2: past the collar the pipe shows the split mix
     svgEl("rect", { x: 188, y: MID - tube / 2, width: 94, height: tube, class: "fl-pipe" }, g);
-    m.lanes.forEach((l) => svgEl("rect", { x: 282, y: l.b0, width: 94, height: Math.max(0.5, l.bandH), class: "fl-pipe fl-" + l.cls }, g));
-    svgEl("rect", { x: 279, y: MID - tube / 2 - 5, width: 6, height: tube + 10, rx: 2, class: "fl-collar" }, g);
+    m.lanes.forEach((l) => rv(svgEl("rect", { x: 282, y: l.b0, width: 94, height: Math.max(0.5, l.bandH), class: "fl-pipe fl-" + l.cls }, g), 1));
+    svgEl("rect", { x: 279, y: MID - tube / 2 - 5, width: 6, height: tube + 10, class: "fl-collar" }, g);
 
     // stage 3 and 4: tapered flows, then a gate that says what it did
     let keptCum = 0;
     const keptTotal = m.lanes.reduce((a, l) => a + l.hit, 0) || 1, inH = Math.min(70, 16 + m.kept.size * 2.4), inTop = MID + 6 - inH / 2;
     m.lanes.forEach((l) => {
       const lt = l.y - (l.h - 2) / 2, lb = l.y + (l.h - 2) / 2;
-      svgEl("path", { d: "M376 " + l.b0 + " C 423 " + l.b0 + ", 423 " + lt + ", 470 " + lt + " H" + GATE_X + " V" + lb + " H470 C 423 " + lb + ", 423 " + l.b1 + ", 376 " + l.b1 + " Z", class: "fl-pipe fl-" + l.cls }, g);
+      rv(svgEl("path", { d: "M376 " + l.b0 + " C 423 " + l.b0 + ", 423 " + lt + ", 470 " + lt + " H" + GATE_X + " V" + lb + " H470 C 423 " + lb + ", 423 " + l.b1 + ", 376 " + l.b1 + " Z", class: "fl-pipe fl-" + l.cls }, g), 2);
       if (l.hit) {
         const f0 = inTop + inH * keptCum / keptTotal, f1 = f0 + inH * l.hit / keptTotal;
         keptCum += l.hit;
-        svgEl("path", { d: "M" + GATE_X + " " + lt + " C 706 " + lt + ", 706 " + f0 + ", 756 " + f0 + " V" + f1 + " C 706 " + f1 + ", 706 " + lb + ", " + GATE_X + " " + lb + " Z", class: "fl-pipe fl-" + l.cls }, g);
+        rv(svgEl("path", { d: "M" + GATE_X + " " + lt + " C 706 " + lt + ", 706 " + f0 + ", 756 " + f0 + " V" + f1 + " C 706 " + f1 + ", 706 " + lb + ", " + GATE_X + " " + lb + " Z", class: "fl-pipe fl-" + l.cls }, g), 3.6);
       }
       const name = l.label.replace(" set ·", " ·");
-      svgText(g, 476, l.y - l.h / 2 + 12, (name.length > 30 ? name.slice(0, 29) + "…" : name) + " · " + l.rids.length, "fl-lane");
-      svgEl("rect", { x: GATE_X, y: l.y - (l.h - 2) / 2 - 2, width: 4, height: l.h + 2, class: "fl-gate" + (l.hit ? " open" : "") }, g);
-      if (l.hit) svgText(g, GATE_X + 9, l.y - 2, l.hit + " kept", "fl-gatetxt ok");
+      rv(svgText(g, 476, l.y - l.h / 2 + 13, (name.length > 26 ? name.slice(0, 25) + "…" : name) + " · " + l.rids.length, "fl-lane"), 2);
+      rv(svgEl("rect", { x: GATE_X, y: l.y - (l.h - 2) / 2 - 2, width: 4, height: l.h + 2, class: "fl-gate" + (l.hit ? " open" : "") }, g), 3);
+      if (l.hit) rv(svgText(g, GATE_X + 9, l.y - 2, l.hit + " kept", "fl-gatetxt ok"), 3.9);
       if (l.held) {
         const yy = l.hit ? l.y + 10 : l.y + 3;
-        svgText(g, GATE_X + 9, yy - (l.hit ? 0 : 5), l.held.n + " held", "fl-gatetxt");
-        svgText(g, GATE_X + 9, yy + (l.hit ? 11 : 6), l.held.why, "fl-gatetxt why");
+        rv(svgText(g, GATE_X + 9, yy - (l.hit ? 0 : 5), l.held.n + " held", "fl-gatetxt"), 3.9);
+        rv(svgText(g, GATE_X + 9, yy + (l.hit ? 11 : 7), l.held.why, "fl-gatetxt why"), 3.9);
       }
     });
 
     // stage 5: the answer box is a chart on the real value scale
-    svgEl("rect", { x: 756, y: 44, width: 180, height: 202, rx: 10, class: "fl-node" + (m.kept.size ? "" : " empty") }, g);
-    svgText(g, 846, 60, mp.stages[4].out, "fl-out", "middle");
+    const box = svgEl("g", {}, g);
+    rv(box, 4);
+    svgEl("rect", { x: 756, y: 44, width: 180, height: 204, class: "fl-node" + (m.kept.size ? "" : " empty") }, box);
     const P = m.plot;
     if (P.ticks.length) {
-      svgEl("line", { x1: NODE.x0 + 30, x2: NODE.x0 + 30, y1: NODE.y0 - 4, y2: NODE.y1 + 4, class: "fl-axis" }, g);
-      P.ticks.forEach(([v, y]) => svgText(g, NODE.x0 + 27, y + 3, val(v), "fl-tick", "end"));
-      (P.xlabels || []).forEach(([x, t]) => svgText(g, x, NODE.y1 + 14, t, "fl-tick", "middle"));
+      svgEl("line", { x1: NODE.x0 + 30, x2: NODE.x0 + 30, y1: NODE.y0 - 4, y2: NODE.y1 + 4, class: "fl-axis" }, box);
+      P.ticks.forEach(([v, y]) => svgText(box, NODE.x0 + 27, y + 3, val(v), "fl-tick", "end"));
+      (P.xlabels || []).forEach(([x, t]) => svgText(box, x, NODE.y1 + 14, t, "fl-tick", "middle"));
       if (P.bar) {
-        svgEl("line", { x1: NODE.x0 + 30, x2: NODE.x1, y1: P.bar.y, y2: P.bar.y, class: "fl-bar" }, g);
-        svgText(g, NODE.x1 + 2, P.bar.y - 3, P.bar.label, "fl-tick", "end");
+        svgEl("line", { x1: NODE.x0 + 30, x2: NODE.x1, y1: P.bar.y, y2: P.bar.y, class: "fl-bar" }, box);
+        svgText(box, NODE.x1 + 2, P.bar.y - 3, P.bar.label, "fl-tick", "end");
       }
-      P.marks.forEach((k) => svgText(g, NODE.x1 + 2, k.y + 3, k.text, "fl-mark", "end"));
+      P.marks.forEach((k) => rv(svgText(box, NODE.x1 + 2, k.y + 3, k.text, "fl-mark", "end"), 4.9));
       if (P.naive) {
-        svgEl("circle", { cx: P.naive.x, cy: P.naive.y, r: 5, class: "fl-top" }, g);
-        svgText(g, NODE.x1 + 2, P.naive.y + 3, P.naive.text, "fl-mark top", "end");
+        svgEl("circle", { cx: P.naive.x, cy: P.naive.y, r: 5, class: "fl-top" }, box);
+        svgText(box, NODE.x1 + 2, P.naive.y + 3, P.naive.text, "fl-mark top", "end");
       }
     } else {
-      svgText(g, 846, 142, "nothing reached the answer", "fl-tick", "middle");
+      svgText(box, 846, 142, "nothing reached the answer", "fl-tick", "middle");
     }
+    rv(svgText(g, 846, 60, mp.stages[4].out, "fl-out", "middle"), 4.9);
     // each count is what its stage produced, centred under that stage's card
     const nP = m.plist.length;
-    mp.arrows.forEach((a, i) => svgText(g, (i + 0.5) * FW / 5, 22, i === 0 ? a + " from " + nP + (nP === 1 ? " paper" : " papers") : a, "fl-count", "middle"));
+    mp.arrows.forEach((a, i) => rv(svgText(g, (i + 0.5) * FW / 5, 20, i === 0 ? m.n + " records · " + nP + (nP === 1 ? " paper" : " papers") : a, "fl-count", "middle"), i + 0.9));
 
-    // resting dots: the final picture, always visible, one per saved record
+    // one circle per saved record; applyT places them all on every frame
     const layer = svgEl("g", {}, svg);
     m.dots.forEach((d) => {
-      const [x, y] = d.rest;
-      const c = svgEl("circle", { r: d.r, cx: x, cy: y, class: "fl-dot " + d.cls + (d.kept ? "" : " held") + (d.win ? " win" : "") }, layer);
-      svgEl("title", {}, c).textContent = d.rec.method + " " + val(d.rec.value) + " · " + splitWord(d.rec.proto) + (d.rec.arxiv_id ? " · arXiv:" + d.rec.arxiv_id : "");
+      d.el = svgEl("circle", { r: d.kept ? m.r : d.r, cx: 0, cy: 0, class: "fl-dot raw" }, layer);
+      svgEl("title", {}, d.el).textContent = d.rec.method + " " + val(d.rec.value) + " · " + splitWord(d.rec.proto) + (d.rec.arxiv_id ? " · arXiv:" + d.rec.arxiv_id : "");
+      d.stag = ((d.rid * 2654435761) % 1000) / 1000;
+      d.state = "";
     });
-    // moving copies: they stream through every stage in a loop, each ending at its record's resting place
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches || /[?&]still\b/.test(location.search);
-    $("flowToggle").hidden = reduced;
-    if (S.flowIO) S.flowIO.disconnect();
-    if (reduced) return;
-    const LOOP = 8000, MAXP = 120, step = Math.max(1, Math.ceil(m.dots.length / MAXP));
-    const movers = m.dots.filter((d, i) => i % step === 0).map((d, i, all) => {
-      const el = svgEl("circle", { r: Math.min(d.r, m.r), cx: 0, cy: 0, class: "fl-dot raw fl-mover" }, svg);
-      return { d, el, phase: i / all.length, cls: "raw" };
+    S.flow = { m, rev, bands, tubeIn: tube - 8 };
+  }
+
+  function applyT() {
+    const T = S.T, f = S.flow;
+    f.m.dots.forEach((d) => {
+      const p = dotProgress(T, d.stag), [x, y] = dotAt(d, p, f.tubeIn);
+      d.el.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ")");
+      const state = (p < 0.3 ? "raw" : d.cls) + (T >= 3.9 && !d.kept ? " held" : "") + (T >= 4.9 && d.win ? " win" : "");
+      if (state !== d.state) { d.state = state; d.el.setAttribute("class", "fl-dot " + state); d.el.setAttribute("r", T >= 4.9 && d.win ? d.r : Math.min(d.r, f.m.r)); }
     });
-    const tubeIn = tube - 8;
-    const frame = (now) => {
-      movers.forEach((v) => {
-        const p = ((now / LOOP) + v.phase) % 1, [x, y] = dotAt(v.d, p, tubeIn);
-        v.el.setAttribute("transform", "translate(" + x.toFixed(1) + " " + y.toFixed(1) + ")");
-        v.el.setAttribute("opacity", p < 0.04 ? (p / 0.04).toFixed(2) : p > 0.94 ? ((1 - p) / 0.06).toFixed(2) : "1");
-        const cls = p < 0.3 ? "raw" : v.d.cls;
-        if (cls !== v.cls) { v.cls = cls; v.el.setAttribute("class", "fl-dot fl-mover " + cls); }
+    f.rev.forEach((e) => { const on = T >= e.r; if (on !== e.on) { e.on = on; e.el.classList.toggle("off", !on); } });
+    const stage = Math.max(0, Math.min(4, Math.ceil(T) - 1));
+    if (stage !== S.stage) { S.stage = stage; renderPipeline(); }
+    f.bands.forEach((b, i) => b.classList.toggle("on", i === S.stage));
+    syncLeaderboard();
+    $("pPlay").textContent = S.playing ? "Pause" : T >= 5 ? "Replay" : "Play";
+  }
+
+  function tick(now) {
+    const dt = Math.min(64, now - S.last); S.last = now;
+    if (S.seekTo != null) {
+      const d = S.seekTo - S.T, step = dt / SEEK_MS;
+      S.T = Math.abs(d) <= step ? S.seekTo : S.T + Math.sign(d) * step;
+      if (S.T === S.seekTo) S.seekTo = null;
+    } else if (S.playing) {
+      if (S.hold > 0) S.hold -= dt * S.speed;
+      else {
+        const next = Math.floor(S.T) + 1;
+        S.T += dt * S.speed / STAGE_MS;
+        if (S.T >= next) { S.T = next; S.hold = HOLD_MS; }
+        if (S.T >= 5) { S.T = 5; S.playing = false; }
+      }
+    }
+    applyT();
+    if (S.playing || S.seekTo != null) S.raf = requestAnimationFrame(tick);
+    else S.raf = null;
+  }
+  const wake = () => { if (!S.raf) { S.last = performance.now(); S.raf = requestAnimationFrame(tick); } };
+  function seek(T) { S.playing = false; S.seekTo = T; S.hold = 0; wake(); }
+  function togglePlay() {
+    if (S.playing) { S.playing = false; applyT(); return; }
+    if (S.T >= 5) S.T = 0;
+    S.seekTo = null; S.hold = 0; S.playing = true; wake();
+  }
+  function stopTimeline() { cancelAnimationFrame(S.raf); S.raf = null; S.playing = false; S.seekTo = null; closeInspect(); }
+  function startTimeline() {
+    stopTimeline();
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches || /[?&]still\b/.test(location.search);
+    S.T = still ? 5 : 0; S.hold = HOLD_MS; S.lbPhase = null;
+    S.flow.rev.forEach((e) => { e.on = true; });
+    S.stage = -1;
+    applyT();
+    if (!still) { S.playing = true; wake(); }
+  }
+
+  // ------------------------------------------------------------------ leaderboard panel
+  /* Before: every record by value. After: only the records the question keeps. Ranks move because
+     records are set aside by their stored labels; no value is ever changed. */
+  function rankMap(rs) {
+    const m = new Map();
+    rs.forEach((r, i) => m.set(r.rid, i && rs[i - 1].value === r.value ? m.get(rs[i - 1].rid) : i + 1));
+    return m;
+  }
+  function lbModel() {
+    const b = S.board, all = ranked(b.records.map((r) => r.rid)), before = rankMap(all), sections = [], { why } = leftOut();
+    if (b.scored) {
+      const A = b.answers, keyLine = (k) => setupLine(k.split ? k : Object.assign({ split: "test" }, k));
+      if (S.tmpl === "Q_official") A.Q_official.sets.forEach((s) => sections.push({ title: A.Q_official.sets.length > 1 ? keyLine(s.key) : null, rids: s.rids, win: [s.winner_rid] }));
+      else if (S.tmpl === "Q_trend") A.Q_trend.years.forEach((y) => y.sets.forEach((s) => sections.push({ title: y.year + " · " + keyLine(s.key), rids: s.rids, win: [s.winner_rid] })));
+      else A.Q_threshold.groups.forEach((g) => sections.push({ title: keyLine(g.key) + (g.clears ? " · beats the bar" : " · does not beat the bar"), rids: g.rids, win: [g.champion_rid] }));
+    }
+    const single = S.tmpl === "Q_official" && sections.length === 1, after = single ? rankMap(ranked(sections[0].rids)) : new Map();
+    return { all, before, sections, why, single, after };
+  }
+
+  function buildLeaderboard() {
+    const M = lbModel(), b = S.board, CAP = 30;
+    // long boards show the head of each ranking; every record stays listed under "All records"
+    let show = new Set(M.all.map((r) => r.rid));
+    if (b.records.length > 2 * CAP) {
+      show = new Set(M.all.slice(0, CAP).map((r) => r.rid));
+      M.sections.forEach((s) => { ranked(s.rids).slice(0, CAP).forEach((r) => show.add(r.rid)); s.win.forEach((w) => show.add(w)); });
+    }
+    const list = $("lbList"), rows = new Map();
+    list.textContent = "";
+    show.forEach((rid) => {
+      const r = rec(rid), el = document.createElement("div"), bad = auditOf(r) && /wrong/.test(auditOf(r).verdict);
+      el.dataset.rid = rid;
+      el.innerHTML = "<span class='lb-r'></span><span class='lb-m'></span><span class='lb-v'></span><span class='lb-t'></span><span class='lb-x'></span>";
+      el.children[1].textContent = r.method + (bad ? " \u26a0" : "");
+      el.children[1].title = r.method;
+      el.children[2].textContent = val(r.value);
+      rows.set(rid, el);
+    });
+    S.lb = { M, rows, show };
+    $("lbNote").textContent = b.records.length > show.size ? "showing " + show.size + " of " + b.records.length + " records" : "hover a row for its data";
+    $("lbFoot").textContent = !b.scored ? "This metric's direction is not recorded, so these records have no ranking."
+      : "Ranks change because records are set aside by their stored labels. No value is changed.";
+  }
+
+  function syncLeaderboard() {
+    const T = S.T, phase = T >= 5 ? 3 : T >= 4 ? 2 : T >= 2 ? 1 : 0, was = S.lbPhase;
+    if (phase === was) return;
+    S.lbPhase = phase;
+    const { M, rows, show } = S.lb, b = S.board, list = $("lbList"), naive = b.scored ? b.answers.Q_any.winner_rid : null;
+    const first = new Map(); rows.forEach((el, rid) => { if (el.isConnected) first.set(rid, el.getBoundingClientRect().top); });
+    const tag = (r) => (r.proto.split == null ? "?" : String(r.proto.split).slice(0, 5));
+    const paint = (rid, rank, x, xc, cls) => {
+      const el = rows.get(rid), r = rec(rid);
+      el.className = "lb-row " + (phase ? (r.proto.split === "test" ? "t-test " : "") : "") + (rid === naive ? "top " : "") + (S.pinned === rid ? "pinned " : "") + cls;
+      el.children[0].textContent = b.scored ? rank : "";
+      el.children[3].textContent = phase ? "[" + tag(r) + "]" : "";
+      el.children[4].textContent = x; el.children[4].className = "lb-x " + xc;
+      list.appendChild(el);
+    };
+    const section = (t) => { const h = document.createElement("div"); h.className = "lb-sec"; h.textContent = t; list.appendChild(h); };
+    list.textContent = "";
+    if (phase < 2 || !b.scored) {
+      M.all.filter((r) => show.has(r.rid)).forEach((r) => paint(r.rid, M.before.get(r.rid), "", "", ""));
+      $("lbTitle").textContent = "All records";
+    } else {
+      const placed = new Set(), going = was != null && phase > was;
+      M.sections.forEach((s) => {
+        if (s.title) section(s.title);
+        const rk = rankMap(ranked(s.rids));
+        ranked(s.rids).forEach((r) => {
+          if (!show.has(r.rid) || placed.has(r.rid)) return;
+          placed.add(r.rid);
+          const win = phase === 3 && s.win.includes(r.rid), bf = M.before.get(r.rid), af = M.after.get(r.rid);
+          let x = "", xc = "";
+          if (M.single) { const d = bf - af; x = "#" + bf + " \u2192 #" + af + (d ? " (+" + d + ")" : " (=)"); xc = d ? "up" : "same"; }
+          paint(r.rid, rk.get(r.rid), x, xc, (win ? "win " : "") + (going && ((phase === 2 && xc === "up") || (phase === 3 && win)) ? "flash-up" : ""));
+        });
       });
-      S.flowRaf = requestAnimationFrame(frame);
-    };
-    S.flowOn = false;
-    S.flowRun = (on) => {
-      cancelAnimationFrame(S.flowRaf);
-      S.flowOn = on;
-      if (on) S.flowRaf = requestAnimationFrame(frame);
-    };
-    const sync = () => S.flowRun(S.flowSeen && !S.flowPaused);
-    S.flowSync = sync;
-    $("flowToggle").textContent = S.flowPaused ? "Play" : "Pause";
-    if ("IntersectionObserver" in window) {
-      S.flowIO = new IntersectionObserver((es) => { S.flowSeen = es[0].isIntersecting; sync(); });
-      S.flowIO.observe(host);
-    } else { S.flowSeen = true; sync(); }
+      const out = M.all.filter((r) => show.has(r.rid) && !placed.has(r.rid));
+      if (out.length) section("Left out (" + M.why.size + ")");
+      out.forEach((r) => paint(r.rid, "\u2013", M.why.get(r.rid) || "", "down", "out " + (going && phase === 2 ? "flash-down" : "")));
+      $("lbTitle").textContent = S.tmpl === "Q_official" ? "Comparable records only" : S.tmpl === "Q_trend" ? "Records by preprint year" : "Records by group";
+      if (!M.sections.length) { const p = document.createElement("div"); p.className = "lb-sec"; list.prepend(p); p.textContent = "No ranking: not enough evidence."; }
+    }
+    // rows glide from where they were to where they now belong
+    const ms = 620 / (S.speed || 1);
+    if (was != null) rows.forEach((el, rid) => {
+      const y0 = first.get(rid); if (y0 == null || !el.isConnected) return;
+      const dy = y0 - el.getBoundingClientRect().top;
+      if (dy) el.animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }], { duration: ms, easing: "cubic-bezier(.2,.7,.2,1)" });
+    });
+  }
+
+  function showInspect(rid, row, pin) {
+    const r = rec(rid), box = $("inspect"), q = row.getBoundingClientRect();
+    if (S.pinnedEl) S.pinnedEl.classList.remove("pinned");
+    S.pinned = pin ? rid : null; S.pinnedEl = pin ? row : null;
+    if (pin) row.classList.add("pinned");
+    box.className = "inspect" + (pin ? " pinned" : "");
+    box.innerHTML = "<div class='inspect-h'><span>" + esc(r.method) + "</span>" + (pin ? "<button data-close='1'>Close</button>" : "") + "</div>" +
+      "<div class='small'>" + paperLink(r) + ", " + pointer(r.source_location) + "</div>" + (auditBadge(r) ? "<div class='small'>" + auditBadge(r) + "</div>" : "") +
+      "<pre class='code'>" + esc(JSON.stringify(r, null, 2)) + "</pre><div class='small muted'>The stored record; field names as released.</div>" +
+      (pin ? "<div class='small'>" + reportLink(r) + "</div>" : "<div class='small muted'>Click the row to keep this open and follow the source.</div>");
+    box.hidden = false;
+    box.style.left = Math.max(8, q.left - box.offsetWidth - 8) + "px";
+    box.style.top = Math.max(8, Math.min(q.top, window.innerHeight - box.offsetHeight - 8)) + "px";
+  }
+  function closeInspect() {
+    if (S.pinnedEl) S.pinnedEl.classList.remove("pinned");
+    S.pinned = null; S.pinnedEl = null; $("inspect").hidden = true;
   }
 
   // ------------------------------------------------------------------ closed sections
