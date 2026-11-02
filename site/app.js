@@ -323,13 +323,15 @@
     const st = S.meta.stats;
     const chips = S.examples.filter((e) => e.chip !== false).map((e) => {
       const sc = SCENARIO[e.n] || {};
-      return "<button data-n='" + e.n + "' title='" + esc(e.label) + "'>" + esc(sc.title || e.label) + "<span>" + esc(CHIP_PLAIN[e.board] || e.label) + "</span></button>";
-    }).join("") + "<a id='browseChip' href='#browse'>Browse all " + fmt(st.boards) + " leaderboards</a>";
+      return "<button data-n='" + e.n + "' title='" + esc(CHIP_PLAIN[e.board] || e.label) + "'>" + esc(sc.title || e.label) + "</button>";
+    }).join("");
     $("chips").innerHTML = chips;
     $("chips").onclick = (e) => {
       const btn = e.target.closest("button"); if (!btn) return;
       const ex = S.examples.find((x) => x.n === +btn.dataset.n); go(ex.board, ex.template);
     };
+    $("tabs").onclick = (e) => { const b = e.target.closest("button"); if (b) setTab(b.dataset.tab); };
+    TAB_IDS.forEach((id) => $(id).addEventListener("toggle", syncTabs));
     $("pPlay").onclick = togglePlay;
     $("pBack").onclick = () => seek(Math.max(0, Math.ceil(S.T) - 1));
     $("pNext").onclick = () => seek(Math.min(5, Math.floor(S.T) + 1));
@@ -377,7 +379,7 @@
     renderCards();
     $("why").innerHTML = b.scored ? (ex && ex.why ? ex.why : whyText()) : "This leaderboard has no answer: the data do not record whether higher or lower is better on this metric, so there is no “best” to report.";
     $("caveat").hidden = !(ex && ex.caveat);
-    if (ex && ex.caveat) $("caveat").innerHTML = "<b>Caveat:</b> " + esc(ex.caveat);
+    if (ex && ex.caveat) $("caveat").innerHTML = "<details><summary>Caveat</summary>" + esc(ex.caveat) + "</details>";
     renderPipeline();
     renderFlow();
     buildLeaderboard();
@@ -387,6 +389,25 @@
     renderBoard();
     renderThreshold();
     renderTyped();
+    syncTabs();
+  }
+
+  const TAB_IDS = ["certSection", "boardSection", "thresholdSection", "readSection"];
+  function syncTabs() {
+    const open = TAB_IDS.find((id) => !$(id).hidden && $(id).open) || "peek";
+    $("peek").hidden = open !== "peek";
+    [...$("tabs").children].forEach((b) => {
+      const t = b.dataset.tab;
+      b.hidden = t !== "peek" && $(t).hidden;
+      b.classList.toggle("on", t === open);
+      b.setAttribute("aria-selected", t === open);
+    });
+  }
+  function setTab(t) {
+    if (t === "peek") TAB_IDS.forEach((id) => { $(id).open = false; });
+    else $(t).open = true;
+    syncTabs();
+    $("peek").parentNode.scrollTop = 0;
   }
 
   // plain description of the worked examples; other boards show only the score direction
@@ -527,8 +548,8 @@
     const m = pipelineModel(), peek = $("peek");
     let html = "";
     m.stages.forEach((s, i) => {
-      html += "<button type='button' class='stg" + (i === S.stage ? " on" : i < S.stage ? " done" : "") + "' data-s='" + i + "' aria-pressed='" + (i === S.stage) + "'>" +
-        "<span class='stg-t'>" + (i + 1) + " · " + esc(s.t) + "</span><span class='stg-d'>" + esc(s.d) + "</span>" +
+      html += "<button type='button' class='stg" + (i === S.stage ? " on" : i < S.stage ? " done" : "") + "' data-s='" + i + "' aria-pressed='" + (i === S.stage) + "' title='" + esc(s.d) + "'>" +
+        "<span class='stg-t'>" + (i + 1) + " · " + esc(s.t) + "</span>" +
         (s.out && S.stage === 4 ? "<span class='io out'>" + esc(s.out) + "</span>" : "") + "</button>";
     });
     $("pipe").innerHTML = html;

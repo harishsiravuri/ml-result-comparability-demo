@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leaderboard Check</title>
 <meta name="description" content="Is the top number on a machine-learning leaderboard a fair comparison? See the top number next to the best test-set result, how the answer was made, and the comparability determination behind it.">
-<link rel="stylesheet" href="style.css?v=30">
+<link rel="stylesheet" href="style.css?v=36">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230066CC'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -18,7 +18,7 @@
 
   <main id="boardView" class="dash">
     <aside class="col left">
-      <p class="intro">Leaderboards rank AI methods by one number, but papers measure it in different ways. <b>Validation data</b> are used while tuning a method. <b>Test data</b> are held back for the final measurement. Ranking the two together is like ranking practice-exam scores with final-exam scores.</p>
+      <p class="intro">Leaderboards often rank <b>validation</b> scores (from tuning) alongside <b>test</b> scores (the final check). This page separates them.</p>
       <div class="ctl">
         <h2>Scenarios</h2>
         <div class="scen" id="chips"></div>
@@ -49,6 +49,13 @@
         <h2>How this answer was made</h2>
         <div id="pipeWrap"><div class="pipe" id="pipe"></div><div class="flow" id="flow"></div><p class="legend"><span class="lg test"></span>test set <span class="lg other"></span>other split <span class="lg unk"></span>split not recorded <span class="lg-note">Each dot is one result record.</span></p></div>
       </section>
+      <div class="tabs" id="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="peek">Stage data</button>
+        <button type="button" role="tab" data-tab="certSection">Comparability determination</button>
+        <button type="button" role="tab" data-tab="boardSection">All records</button>
+        <button type="button" role="tab" data-tab="thresholdSection">Does the lead hold?</button>
+        <button type="button" role="tab" data-tab="readSection">Errors and notes</button>
+      </div>
       <div class="lower">
         <div class="peek" id="peek"></div>
         <div class="more">
@@ -115,6 +122,6 @@
   </footer>
 </div>
 <div class="inspect" id="inspect" hidden></div>
-<script src="app.js?v=32"></script>
+<script src="app.js?v=34"></script>
 </body>
 </html>
