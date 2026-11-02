@@ -28,4 +28,4 @@ The code is MIT-licensed (`LICENSE`). The data are CC-BY-SA 4.0 and frozen. Evid
 [ml-result-comparability](https://github.com/harishsiravuri/ml-result-comparability)
 ([10.5281/zenodo.21715276](https://doi.org/10.5281/zenodo.21715276)).
 
-Authors: Harish Varma Siravuri and Hamed Alhoori, Northern Illinois University.
+Authors: Harish Varma Siravuri (Northern Illinois University), Apoorv Bhatia (Independent Researcher, Seattle, WA), and Hamed Alhoori (Northern Illinois University).
