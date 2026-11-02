@@ -342,7 +342,7 @@
     $("lbList").addEventListener("click", (e) => { const r = e.target.closest(".lb-row"); if (r) showInspect(+r.dataset.rid, r, true); });
     $("inspect").addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeInspect(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeInspect(); });
-    $("topLinks").innerHTML = "<a class='altview' href='https://harishsiravuri.github.io/ml-result-comparability-demo-v3/' title='Open the advanced view of this demo (design by Apoorv)'>Advanced View</a><a href='#browse'>Browse all</a><a href='" + esc(S.meta.repo_url) + "' target='_blank' rel='noopener'>Dataset</a><a href='" + esc(S.meta.demo_repo_url) + "' target='_blank' rel='noopener'>Source code</a><a href='" + esc(S.meta.demo_repo_url) + "/issues/new?labels=label-error' target='_blank' rel='noopener'>Report a label error</a>";
+    $("topLinks").innerHTML = "<a class='altview' href='https://harishsiravuri.github.io/ml-result-comparability-demo-v3/' title='Open the advanced view of this demo'>Advanced View</a><a href='#browse'>Browse all</a><a href='" + esc(S.meta.repo_url) + "' target='_blank' rel='noopener'>Dataset</a><a href='" + esc(S.meta.demo_repo_url) + "' target='_blank' rel='noopener'>Source code</a><a href='" + esc(S.meta.demo_repo_url) + "/issues/new?labels=label-error' target='_blank' rel='noopener'>Report a label error</a>";
     $("modeSwitch").onclick = (e) => { const b = e.target.closest("button"); if (b && S.board) go(S.board.id, b.dataset.t); };
 
     $("templateHelp").innerHTML = S.templates.templates.map((t) =>
