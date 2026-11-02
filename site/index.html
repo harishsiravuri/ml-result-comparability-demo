@@ -4,86 +4,159 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leaderboard Check</title>
-<meta name="description" content="Is the top number on a machine-learning leaderboard a fair comparison? See the top number next to the best test-set result, how the answer was made, and the comparability determination behind it.">
-<link rel="stylesheet" href="style.css?v=29">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232a4d8f'/%3E%3Cpath d='M8 22h4v-8H8zm6 0h4V9h-4zm6 0h4v-5h-4z' fill='white'/%3E%3C/svg%3E">
+<meta name="description" content="Every leaderboard drawn as a ruler: the top number next to the best result under the same evaluation setup, with the source table for every record.">
+<!-- link previews (Slack, X, LinkedIn, iMessage, email): absolute URLs, since crawlers do not run the page -->
+<link rel="canonical" href="https://harishsiravuri.github.io/ml-result-comparability-demo/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Leaderboard Check">
+<meta property="og:title" content="Leaderboard Check: 120 of 3,061 leaderboards name a different winner">
+<meta property="og:description" content="Leaderboards rank one number, but papers measure it under different setups. Every leaderboard in a frozen Papers with Code archive, re-ranked with only same-setup results.">
+<meta property="og:url" content="https://harishsiravuri.github.io/ml-result-comparability-demo/">
+<meta property="og:image" content="https://harishsiravuri.github.io/ml-result-comparability-demo/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The leaderboard says 34.88, measured on the validation split; the fair comparison on the test split is 32.84. 120 of 3,061 leaderboards name a different winner.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Leaderboard Check: 120 of 3,061 leaderboards name a different winner">
+<meta name="twitter:description" content="Leaderboards rank one number, but papers measure it under different setups. See every leaderboard re-ranked with only same-setup results.">
+<meta name="twitter:image" content="https://harishsiravuri.github.io/ml-result-comparability-demo/og.png">
+<meta name="twitter:image:alt" content="The leaderboard says 34.88, measured on the validation split; the fair comparison on the test split is 32.84.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121311" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="fonts/stix-two-text-regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/cousine-regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="data/examples.json" as="fetch" crossorigin>
+<link rel="preload" href="data/meta.json" as="fetch" crossorigin>
+<link rel="preload" href="fonts/stix-two-text-italic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/stix-two-text-semibold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="data/templates.json" as="fetch" crossorigin>
+<link rel="preload" href="data/boards/f6.json" as="fetch" crossorigin>
+<style>
+@font-face{font-family:"Paper";src:url(fonts/stix-two-text-regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Paper";src:url(fonts/stix-two-text-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Paper";src:url(fonts/stix-two-text-semibold.woff2) format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Record";src:url(fonts/cousine-regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Paper Fallback";src:local("Times New Roman"),local("Times"),local("Liberation Serif");size-adjust:104%;ascent-override:92%;descent-override:24%}
+@font-face{font-family:"Record Fallback";src:local("Courier New"),local("Liberation Mono");size-adjust:98%}
+</style>
+<link rel="stylesheet" href="style.css?v=82">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='white'/%3E%3Cpath d='M16 4v24' stroke='%23111' stroke-width='2'/%3E%3Ccircle cx='11' cy='11' r='3.2' fill='%23C45A14'/%3E%3Ccircle cx='21' cy='17' r='3.2' fill='%23177A4A'/%3E%3C/svg%3E">
 </head>
 <body>
-<div class="wrap">
-  <header class="top"><h1><a href="#">Leaderboard Check</a></h1></header>
+<a class="skip" href="#main">Skip to content</a>
+<div class="page">
+  <header class="mast" id="mast">
+    <h1 class="brand"><a href="#" data-action="home"><svg class="mark" viewBox="0 0 26 34" aria-hidden="true" focusable="false"><path d="M13 1.5v31" stroke="currentColor" stroke-width="2.2"/><circle cx="6.5" cy="9" r="4.2" class="mk-o"/><circle cx="19.5" cy="20" r="4.2" class="mk-t"/></svg><span>Leaderboard Check</span></a></h1>
+    <p class="deck" id="deck">Leaderboards rank one number. Papers measure it under different setups.</p>
+    <form class="find" id="findForm" role="search">
+      <input id="find" type="search" placeholder="dataset or metric" aria-label="Find a leaderboard" autocomplete="off" spellcheck="false">
+      <datalist id="findList"></datalist>
+    </form>
+    <nav class="links" aria-label="Pages"><a href="#" data-action="home" data-nav="home">Home</a><a href="#browse" data-nav="browse">Browse</a><a href="#blindspots" data-nav="blindspots">Blindspots</a><a href="#about" data-nav="about">About</a><button type="button" class="linkish" id="simpleBtn" data-action="simple" aria-expanded="false" aria-controls="simple" title="Explain simply"><span class="nl">Explain simply</span><svg class="ico" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 7.7a2.5 2.5 0 1 1 3.7 2.2c-.8.45-1.2.95-1.2 1.75v.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="14.6" r="1" fill="currentColor"/></svg></button><button type="button" class="linkish" id="themeBtn" data-action="theme" aria-label="Switch colour theme" title="Switch colour theme"><span class="nl">Dark</span><svg class="ico" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="8.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 1.8a8.2 8.2 0 0 0 0 16.4z" fill="currentColor"/></svg></button></nav>
+  </header>
+  <div class="rh" aria-hidden="true"></div>
 
-  <main>
-    <section id="boardView">
-      <p class="intro">Leaderboards rank AI methods by one number. But papers measure that number in different ways. Some use <b>validation data</b>, which researchers use while tuning a method. Others use <b>test data</b>, held back for the final measurement. Ranking the two together is like ranking practice-exam scores with final-exam scores. This page shows the top number next to the best number from a fair comparison.</p>
-      <h2 class="ask" id="ask">Loading&hellip;</h2>
+  <main id="main">
+    <section id="boardView" aria-live="polite">
+      <p class="present-stats" id="presentStats" aria-hidden="true"></p>
+      <p class="kicker" id="kicker"></p>
+      <nav class="exstrip" id="examples" aria-label="The paper's worked examples"></nav>
+      <h2 class="q" id="ask">Loading the archive…</h2>
       <p class="gloss" id="gloss"></p>
-      <div class="duo" id="cards"></div>
+      <p class="line" id="modeSwitch" role="group" aria-label="Question type"></p>
+      <p class="mix" id="mix"></p>
+
+      <figure class="fig hero" id="heroFig">
+        <div id="hero" class="ruler-host"></div>
+        <figcaption class="cap" id="heroCap"></figcaption>
+      </figure>
+
       <p class="why" id="why"></p>
       <p class="caveat" id="caveat" hidden></p>
-      <div class="explore">
-        <div class="switch" id="modeSwitch" role="group" aria-label="Question type" hidden></div>
-        <div class="row"><span class="small muted">Try another research task:</span><div class="chips" id="chips"></div></div>
-      </div>
 
-      <section class="made">
-        <h2>How this answer was made</h2>
-        <p class="madeline">The same five stages run on every leaderboard. Select a stage to see its data.</p>
-        <div id="pipeWrap"><div class="pipe" id="pipe"></div><div class="flow" id="flow"></div><p class="legend"><span class="lg test"></span>test set <span class="lg other"></span>other split <span class="lg unk"></span>split not recorded <span class="lg-note">Each dot is one result record. In the answer box, the best value is at the top.</span><button type="button" class="linkish" id="flowToggle">Pause</button></p><div class="peek" id="peek" hidden></div></div>
+
+      <div class="howknow" id="howknow">
+        <h2 class="hk-h">How we know</h2>
+        <p class="hk-d">Every answer above rests on three things you can check: the five steps that made it, a hand check of the data, and every record with the table it came from.</p>
+      </div>
+      <section class="process" id="process">
+        <h2 class="sec-h">How this answer was made <small>Every leaderboard goes through the same five steps. Click one to see its records.</small></h2>
+        <div class="stagebar" id="stageBar" role="group" aria-label="Stages"></div>
+        <figure class="fig" id="pipeFig">
+          <div id="pipe" class="ruler-host"></div>
+          <figcaption class="cap" id="pipeCap"></figcaption>
+        </figure>
+        <p class="line" id="stageLine"></p>
+        <div class="peek" id="peek" hidden></div>
       </section>
 
-      <div class="more">
-        <details id="certSection">
-          <summary>Comparability determination <span>&middot; what matched and what differed</span></summary>
-          <div class="det">
-            <p class="muted small" id="certIntro"></p>
-            <div id="certSlots" class="chips slot-tabs"></div>
-            <div id="certBody"></div>
-          </div>
-        </details>
-        <details id="boardSection">
-          <summary id="boardSummary">All records, grouped by setup</summary>
-          <div class="det" id="boardBody"></div>
-        </details>
-        <details id="thresholdSection">
-          <summary id="thresholdSummary">Does the lead hold?</summary>
-          <div class="det" id="thresholdBody"></div>
-        </details>
-        <details id="readSection">
-          <summary>How to read this, and known errors <span>&middot; 14 of 56 hand-checked labels were wrong</span></summary>
-          <div class="det">
-            <p id="auditText"></p>
-            <h3>The questions</h3>
-            <div id="templateHelp" class="tmpl-help"></div>
-            <h3>Words used here</h3>
-            <dl class="status-help">
-              <dt>Validation and test sets</dt><dd>Validation data guide choices while a method is tuned. Test data are kept back for the final measurement. Each is a data split.</dd>
-              <dt>Fair comparison</dt><dd>The best recorded number among records that share the setup the question needs. A record of unknown setup stands alone, so it cannot win.</dd>
-              <dt>Result record</dt><dd>One value reported for one method, with its paper, split, metric name, unit and source location.</dd>
-              <dt>Evaluation setup</dt><dd>The data split, the metric name as written, and the unit of a result record.</dd>
-              <dt>Valid comparison set</dt><dd>Result records that share split, metric name and unit. This site calls each set a group.</dd>
-              <dt>Comparability determination</dt><dd>One recorded decision about two result records, with its status. Released file and field names keep the older word &ldquo;certificate&rdquo;.</dd>
-              <dt>Not enough evidence</dt><dd>No two extracted records can be compared under the question, so no answer is given.</dd>
-              <dt>Pointers</dt><dd>&ldquo;Extracted table #N (parser order)&rdquo; is the position of a table in the parsed paper, counted from 0. It may differ from the paper&rsquo;s own table number.</dd>
-            </dl>
-            <details id="typedSection" hidden>
-              <summary id="typedSummary">Typed comparative questions</summary>
-              <div class="det" id="typedBody"></div>
-            </details>
-            <p class="small" id="downloads"></p>
-            <p class="small muted" id="licence"></p>
-          </div>
-        </details>
-      </div>
+      <figure class="fig erratum" id="erratumFig">
+        <p class="erratum-head" id="erratumHead"></p>
+        <div id="erratum" class="ruler-host"></div>
+        <figcaption class="cap" id="erratumCap"></figcaption>
+      </figure>
+
+      <p class="reveal-row"><button type="button" class="reveal" id="evidenceBtn" data-action="evidence" aria-expanded="false" aria-controls="evidence"><span class="reveal-mark" aria-hidden="true">+</span> <span id="evidenceLabel">Show the evidence</span></button> <span class="muted" id="evidenceHint">Every record behind this answer, how it was measured, and the table it came from.</span></p>
+      <section class="evidence" id="evidence" hidden>
+        <h2 class="sec-h" id="boardSummary">§1 All records, grouped by setup <small>Pick any two marks or rows to see whether they can be compared, and why.</small></h2>
+        <figure class="fig"><div id="groups" class="ruler-host"></div></figure>
+        <div id="boardBody"></div>
+
+        <h2 class="sec-h" id="certHead">§2 What matched, what differed <small>comparability determination</small></h2>
+        <p class="line" id="certSlots"></p>
+        <div id="certBody"></div>
+
+        <div id="thresholdSection" hidden>
+          <h2 class="sec-h" id="thresholdSummary">§3 Does the lead hold?</h2>
+          <div id="thresholdBody"></div>
+        </div>
+        <div id="typedSection" hidden>
+          <h2 class="sec-h" id="typedSummary">§4 Typed comparative questions</h2>
+          <div id="typedBody"></div>
+        </div>
+      </section>
     </section>
 
     <section id="browseView" hidden></section>
+    <section id="spotView" hidden></section>
+
+    <section id="aboutView" hidden>
+      <h2 class="q">About Leaderboard Check</h2>
+      <p class="about-lede">Leaderboards rank one number, but papers measure that number under different setups. This site re-ranks every leaderboard in a frozen Papers with Code archive using only results measured the same way, and shows both answers side by side.</p>
+      <p class="about-by">Harish Varma Siravuri and Hamed Alhoori, Northern Illinois University</p>
+      <ul class="about-links">
+        <li><a href="https://github.com/harishsiravuri/ml-result-comparability-demo" target="_blank" rel="noopener">Demo source</a></li>
+        <li><a href="https://doi.org/10.5281/zenodo.21715276" target="_blank" rel="noopener">Dataset DOI</a></li>
+      </ul>
+      <h3>The questions</h3>
+      <div id="templateHelp" class="tmpl-help"></div>
+      <h3>The hand check</h3>
+      <div id="auditText" class="audit"></div>
+      <h3>Words used here</h3>
+      <dl class="gloss-list">
+        <dt>Validation and test sets</dt><dd>Validation data guide choices while a method is tuned. Test data are kept back for the final measurement. Each is a data split.</dd>
+        <dt>Fair comparison</dt><dd>The best recorded number among records that share the setup the question needs. A record of unknown setup stands alone, so it cannot win.</dd>
+        <dt>Result record</dt><dd>One value reported for one method, with its paper, split, metric name, unit and source location.</dd>
+        <dt>Evaluation setup</dt><dd>The data split, the metric name as written, and the unit of a result record.</dd>
+        <dt>Valid comparison set</dt><dd>Result records that share split, metric name and unit. This site calls each set a group.</dd>
+        <dt>Comparability determination</dt><dd>One recorded decision about two result records, with its status. Released file and field names keep the older word “certificate”.</dd>
+        <dt>No fair comparison possible</dt><dd>No two extracted records can be compared under the question, so no answer is given. This is an answer, not an error.</dd>
+        <dt>Pointers</dt><dd>“parsed table N” is the position of a table in the parsed paper, counted from 0 in parser order. It may differ from the paper’s own table number.</dd>
+      </dl>
+      <h3>Downloads</h3>
+      <ul class="dl-list" id="downloads"></ul>
+      <p class="body muted" id="licence"></p>
+    </section>
   </main>
 
   <footer class="foot">
-    <p id="footStats"></p>
-    <p id="footLinks"></p>
+    <div id="footStats"></div>
+    <div id="footLinks"></div>
   </footer>
 </div>
-<script src="app.js?v=31"></script>
+<aside class="sheet" id="simple" hidden aria-labelledby="simpleH"><div class="sheet-in"><p class="sheet-top"><span class="sheet-k" id="simpleH"><span class="sheet-kick">In plain words</span><span class="sheet-page" id="simplePage"></span></span><button type="button" class="sheet-x" data-action="simple-close" aria-label="Close the plain-words note" title="Close (Esc)">×</button></p><div id="simpleBody"></div></div></aside>
+<div class="ticket" id="ticket" role="tooltip" hidden></div>
+<div class="deftip" id="defTip" role="tooltip" hidden></div>
+<script src="app.js?v=82"></script>
 </body>
 </html>
