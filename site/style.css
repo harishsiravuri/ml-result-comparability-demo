@@ -266,3 +266,4 @@ tr.pick { cursor: pointer; } tr.pick:hover td { background: var(--bg); } tr.chos
 .more > details > .det { margin-top: 0; }
 .caveat details { display: inline; } .caveat summary { cursor: pointer; color: var(--acc); }
 .caveat details[open] summary { margin-bottom: 2px; }
+.toplinks .altview { color: var(--ink); font-weight: 600; } .toplinks .altview span { color: var(--mute); font-weight: 400; }
